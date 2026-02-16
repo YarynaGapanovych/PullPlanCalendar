@@ -19,7 +19,7 @@ export const Tabs = ({
 }: TabsProps) => {
   return (
     <div className={className}>
-      <div className="border-b border-gray-200 mb-0">
+      <div className="mb-0">
         <div className="flex gap-1">
           {items.map((item) => (
             <button

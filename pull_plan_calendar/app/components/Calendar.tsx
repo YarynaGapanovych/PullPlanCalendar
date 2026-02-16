@@ -1,18 +1,18 @@
 "use client";
 
-import { DndContext, DragEndEvent } from "@dnd-kit/core";
-import dayjs, { Dayjs } from "dayjs";
-import { useState } from "react";
+import { SegmentedControl } from "@/app/components/ui/SegmentedControl";
+import { CalendarDaysIcon } from "@/app/components/ui/icons/CalendarDaysIcon";
+import { CalendarOutlinedIcon } from "@/app/components/ui/icons/CalendarOutlined";
+import { FieldTimeIcon } from "@/app/components/ui/icons/FieldTimeIcon";
 import {
   getMockScheduledTasks,
   getMockUnscheduledTasks,
 } from "@/app/mocks/tasks";
 import { CalendarViewMode } from "@/app/types/calendar";
 import { Task } from "@/app/types/task";
-import { SegmentedControl } from "@/app/components/ui/SegmentedControl";
-import { CalendarDaysIcon } from "@/app/components/ui/icons/CalendarDaysIcon";
-import { CalendarOutlinedIcon } from "@/app/components/ui/icons/CalendarOutlined";
-import { FieldTimeIcon } from "@/app/components/ui/icons/FieldTimeIcon";
+import { DndContext, DragEndEvent } from "@dnd-kit/core";
+import dayjs, { Dayjs } from "dayjs";
+import { useState } from "react";
 import DayView from "./DayView";
 import MonthView from "./MonthView";
 import WeekView from "./WeekView";
@@ -61,11 +61,11 @@ const Calendar = ({
     ? zoomLevel
     : (views[0] ?? "week");
 
-  const [scheduledTasks, setScheduledTasks] = useState<Task[]>(
-    () => getMockScheduledTasks(),
+  const [scheduledTasks, setScheduledTasks] = useState<Task[]>(() =>
+    getMockScheduledTasks(),
   );
-  const [unscheduledTasks, setUnscheduledTasks] = useState<Task[]>(
-    () => getMockUnscheduledTasks(),
+  const [unscheduledTasks, setUnscheduledTasks] = useState<Task[]>(() =>
+    getMockUnscheduledTasks(),
   );
   const [startDate, setStartDate] = useState<Dayjs>(dayjs().startOf("week"));
 
@@ -154,7 +154,7 @@ const Calendar = ({
     <DndContext onDragEnd={handleDragEnd}>
       <div className="flex flex-col">
         {showSwitcher && views.length > 0 && (
-          <div className="flex justify-center md:justify-end">
+          <div className="flex justify-center md:justify-end my-6">
             <SegmentedControl
               className="rounded-r-full rounded-l-full border border-gray-200 bg-gray-100 shadow-xs py-1 px-2"
               value={effectiveZoom}
