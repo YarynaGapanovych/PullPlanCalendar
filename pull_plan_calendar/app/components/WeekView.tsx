@@ -7,6 +7,7 @@ import { ChevronLeftIcon } from "@/app/components/ui/icons/ChevronLeft";
 import { ChevronRightIcon } from "@/app/components/ui/icons/ChevronRight";
 import { EyeIcon } from "@/app/components/ui/icons/Eye";
 import { PlusOutlinedIcon } from "@/app/components/ui/icons/PlusOutlined";
+import { MOCK_USER } from "@/app/mocks/user";
 import { ProgressStatus, Task, UserRole } from "@/app/types/task";
 import { getTaskColorHex } from "@/app/utils/taskColors";
 import dayjs from "dayjs";
@@ -15,11 +16,6 @@ import { Responsive } from "react-grid-layout";
 import "react-grid-layout/css/styles.css";
 import CreateTaskModal from "./tasks/CreateTaskModal";
 import { TaskModal } from "./tasks/TaskModal";
-
-// Mock user (replace with Redux/context when available)
-const MOCK_USER = {
-  roles: [{ role: { name: UserRole.ADMIN } }],
-};
 
 interface WeekViewProps {
   startDate: dayjs.Dayjs;

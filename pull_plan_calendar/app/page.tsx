@@ -1,10 +1,10 @@
-import Calendar from "./components/Calendar";
+import CalendarContainer from "./components/CalendarContainer";
 
 export default function Home() {
   return (
     <div>
-      <main className="w-full max-w-6xl mx-auto mt-12 bg-white rounded-lg shadow-md p-4">
-        <Calendar areaId="mock-area-1" />
+      <main className="w-full max-w-7xl mx-auto mt-12">
+        <CalendarContainer showSwitcher={true} showTabs={true} />
       </main>
     </div>
   );

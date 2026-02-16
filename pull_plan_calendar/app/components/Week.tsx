@@ -4,27 +4,13 @@ import { Button } from "@/app/components/ui/Button";
 import { Text } from "@/app/components/ui/Text";
 import { Tooltip } from "@/app/components/ui/Tooltip";
 import { PlusCircleIcon } from "@/app/components/ui/icons/PlusCircle";
+import { MOCK_USER } from "@/app/mocks/user";
+import { mockUpdateTask } from "@/app/mocks/tasks";
 import { ProgressStatus, Task, UserRole } from "@/app/types/task";
 import { getTaskColorHex } from "@/app/utils/taskColors";
 import dayjs, { Dayjs } from "dayjs";
 import { useMemo, useState } from "react";
 import { TaskModal } from "./tasks/TaskModal";
-
-// Mock user (replace with Redux/context when available)
-const MOCK_USER = {
-  roles: [{ role: { name: UserRole.ADMIN } }],
-};
-
-// Mock update task: no network call, matches TaskModal updateTask signature
-// eslint-disable-next-line @typescript-eslint/no-unused-vars -- signature for TaskModal
-async function mockUpdateTask(
-  _options?: {
-    variables?: { data: Record<string, unknown> };
-    onError?: (error: Error) => void;
-  },
-): Promise<void> {
-  await new Promise((resolve) => setTimeout(resolve, 200));
-}
 
 interface WeekProps {
   days: Dayjs[];

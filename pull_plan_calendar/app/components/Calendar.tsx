@@ -3,64 +3,64 @@
 import { DndContext, DragEndEvent } from "@dnd-kit/core";
 import dayjs, { Dayjs } from "dayjs";
 import { useState } from "react";
-import { ProgressStatus, Task } from "@/app/types/task";
+import {
+  getMockScheduledTasks,
+  getMockUnscheduledTasks,
+} from "@/app/mocks/tasks";
+import { CalendarViewMode } from "@/app/types/calendar";
+import { Task } from "@/app/types/task";
 import { SegmentedControl } from "@/app/components/ui/SegmentedControl";
 import { CalendarDaysIcon } from "@/app/components/ui/icons/CalendarDaysIcon";
 import { CalendarOutlinedIcon } from "@/app/components/ui/icons/CalendarOutlined";
 import { FieldTimeIcon } from "@/app/components/ui/icons/FieldTimeIcon";
+import DayView from "./DayView";
 import MonthView from "./MonthView";
 import WeekView from "./WeekView";
 import YearView from "./YearView";
 
+const ALL_VIEWS: CalendarViewMode[] = ["day", "week", "month", "year"];
+
+const VIEW_OPTIONS: Record<
+  CalendarViewMode,
+  { label: string; icon: React.ReactNode }
+> = {
+  day: {
+    label: "Daily",
+    icon: <FieldTimeIcon width={16} />,
+  },
+  week: {
+    label: "Weekly",
+    icon: <CalendarOutlinedIcon width={16} />,
+  },
+  month: {
+    label: "Monthly",
+    icon: <CalendarDaysIcon width={16} />,
+  },
+  year: {
+    label: "Yearly",
+    icon: <FieldTimeIcon width={16} />,
+  },
+};
+
 interface CalendarProps {
   showSwitcher?: boolean;
   areaId: string;
+  /** Which view modes to show. Default: all. */
+  views?: CalendarViewMode[];
 }
 
-// Mock data (replace with API when available)
-const getMockScheduledTasks = (): Task[] => {
-  const weekStart = dayjs().startOf("week");
-  return [
-    {
-      id: "mock-1",
-      name: "Scheduled task 1",
-      startDate: weekStart.add(0, "day").format("YYYY-MM-DD"),
-      endDate: weekStart.add(1, "day").format("YYYY-MM-DD"),
-      employees: [{ id: "e1", name: "Alice" }],
-      progressStatus: ProgressStatus.IN_PROGRESS,
-    },
-    {
-      id: "mock-2",
-      name: "Scheduled task 2",
-      startDate: weekStart.add(2, "day").format("YYYY-MM-DD"),
-      endDate: weekStart.add(3, "day").format("YYYY-MM-DD"),
-      employees: [],
-      progressStatus: ProgressStatus.NOT_STARTED,
-    },
-  ];
-};
+const Calendar = ({
+  showSwitcher = true,
+  areaId,
+  views = ALL_VIEWS,
+}: CalendarProps) => {
+  const [zoomLevel, setZoomLevel] = useState<CalendarViewMode>(() =>
+    views.length > 0 ? views[0] : "week",
+  );
+  const effectiveZoom = views.includes(zoomLevel)
+    ? zoomLevel
+    : (views[0] ?? "week");
 
-const getMockUnscheduledTasks = (): Task[] => [
-  {
-    id: "mock-3",
-    name: "Unscheduled task A",
-    startDate: dayjs().format("YYYY-MM-DD"),
-    endDate: dayjs().add(1, "day").format("YYYY-MM-DD"),
-    employees: [],
-    progressStatus: ProgressStatus.BLOCKED,
-  },
-  {
-    id: "mock-4",
-    name: "Unscheduled task B",
-    startDate: dayjs().format("YYYY-MM-DD"),
-    endDate: dayjs().add(1, "day").format("YYYY-MM-DD"),
-    employees: [],
-    progressStatus: ProgressStatus.COMPLETED,
-  },
-];
-
-const Calendar = ({ showSwitcher = true, areaId }: CalendarProps) => {
-  const [zoomLevel, setZoomLevel] = useState<"year" | "month" | "week">("week");
   const [scheduledTasks, setScheduledTasks] = useState<Task[]>(
     () => getMockScheduledTasks(),
   );
@@ -105,6 +105,18 @@ const Calendar = ({ showSwitcher = true, areaId }: CalendarProps) => {
   };
 
   const zoomLevelView = {
+    day: (
+      <DayView
+        startDate={startDate.startOf("day")}
+        setStartDate={setStartDate}
+        scheduledTasks={scheduledTasks}
+        unscheduledTasks={unscheduledTasks}
+        setScheduledTasks={setScheduledTasks}
+        setUnscheduledTasks={setUnscheduledTasks}
+        areaId={areaId}
+        onTaskUpdated={async () => {}}
+      />
+    ),
     week: (
       <WeekView
         startDate={startDate}
@@ -141,46 +153,26 @@ const Calendar = ({ showSwitcher = true, areaId }: CalendarProps) => {
   return (
     <DndContext onDragEnd={handleDragEnd}>
       <div className="flex flex-col">
-        {showSwitcher && (
+        {showSwitcher && views.length > 0 && (
           <div className="flex justify-center md:justify-end">
             <SegmentedControl
               className="rounded-r-full rounded-l-full border border-gray-200 bg-gray-100 shadow-xs py-1 px-2"
-              value={zoomLevel}
-              options={[
-                {
-                  label: (
-                    <span className="flex items-center gap-2">
-                      <CalendarOutlinedIcon width={16} />
-                      Weekly
-                    </span>
-                  ),
-                  value: "week",
-                },
-                {
-                  label: (
-                    <span className="flex items-center gap-2">
-                      <CalendarDaysIcon width={16} />
-                      Monthly
-                    </span>
-                  ),
-                  value: "month",
-                },
-                {
-                  label: (
-                    <span className="flex items-center gap-2">
-                      <FieldTimeIcon width={16} />
-                      Yearly
-                    </span>
-                  ),
-                  value: "year",
-                },
-              ]}
+              value={effectiveZoom}
+              options={views.map((view) => ({
+                label: (
+                  <span className="flex items-center gap-2">
+                    {VIEW_OPTIONS[view].icon}
+                    {VIEW_OPTIONS[view].label}
+                  </span>
+                ),
+                value: view,
+              }))}
               onChange={(value) => setZoomLevel(value)}
             />
           </div>
         )}
 
-        {zoomLevelView[zoomLevel]}
+        {zoomLevelView[effectiveZoom]}
       </div>
     </DndContext>
   );
