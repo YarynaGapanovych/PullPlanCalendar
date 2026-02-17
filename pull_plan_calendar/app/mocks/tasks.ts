@@ -1,5 +1,5 @@
 import dayjs from "dayjs";
-import { ProgressStatus, Task } from "@/app/types/task";
+import { ProgressStatus, type Task } from "src";
 
 export function getMockScheduledTasks(): Task[] {
   const weekStart = dayjs().startOf("week");

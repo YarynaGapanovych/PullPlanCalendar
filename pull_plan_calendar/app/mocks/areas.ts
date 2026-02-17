@@ -1,4 +1,4 @@
-import { Area } from "@/app/types/task";
+import type { Area } from "src";
 
 export const MOCK_AREAS: Area[] = [
   { id: "area-1", name: "Area 1" },
