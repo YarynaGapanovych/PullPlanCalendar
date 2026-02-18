@@ -7,14 +7,10 @@ settings:
 importers:
 
   .:
-    dependencies:
+    devDependencies:
       '@dnd-kit/core':
         specifier: ^6.3.1
         version: 6.3.1(react-dom@19.2.3(react@19.2.3))(react@19.2.3)
-      dayjs:
-        specifier: ^1.11.19
-        version: 1.11.19
-    devDependencies:
       '@tailwindcss/postcss':
         specifier: ^4
         version: 4.1.18
@@ -27,6 +23,9 @@ importers:
       '@types/react-dom':
         specifier: ^19
         version: 19.2.3(@types/react@19.2.13)
+      dayjs:
+        specifier: ^1.11.19
+        version: 1.11.19
       eslint:
         specifier: ^9
         version: 9.39.2(jiti@2.6.1)
