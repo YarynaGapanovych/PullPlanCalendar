@@ -1,52 +1,70 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# pull-plan-calendar
 
-## Using the calendar library
+React calendar with **day**, **week**, **month**, and **year** views. Supports task/event scheduling, drag-and-drop in the week view (move and resize events), optional task modals, and controlled or uncontrolled usage.
 
-**Import `pull-plan-calendar/dist/calendar.css` in your app.**
+---
 
-In CSS:
+## Install
 
-```css
-@import "pull-plan-calendar/dist/calendar.css";
+```bash
+pnpm add pull-plan-calendar
+# or
+npm install pull-plan-calendar
+# or
+yarn add pull-plan-calendar
 ```
 
-In JavaScript/TypeScript:
+**Peer dependencies** (install if you don’t have them):
 
-```js
+```bash
+pnpm add react react-dom @dnd-kit/core dayjs
+```
+
+**Styles** — import the library CSS once in your app (e.g. in your root layout or `_app.tsx`):
+
+```ts
 import "pull-plan-calendar/dist/calendar.css";
 ```
 
-## Getting Started
+---
 
-First, run the development server:
+## Usage
 
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+```tsx
+import { Calendar } from "pull-plan-calendar";
+import "pull-plan-calendar/dist/calendar.css";
+
+export default function App() {
+  return (
+    <Calendar
+      defaultView="week"
+      defaultEvents={[
+        {
+          id: "1",
+          title: "Meeting",
+          start: "2025-02-18T10:00:00",
+          end: "2025-02-18T11:00:00",
+        },
+      ]}
+      onEventMove={async (payload) => {
+        console.log("Moved", payload);
+      }}
+      onEventResize={async (payload) => {
+        console.log("Resized", payload);
+      }}
+    />
+  );
+}
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Use **controlled** mode with `events`, `date`, `view`, and `onEventsChange` / `onDateChange` / `onViewChange`. Use **uncontrolled** mode with `defaultEvents`, `defaultDate`, `defaultView`. Set `readOnly={true}` to disable drag, resize, and create.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+---
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+## Notes
 
-## Learn More
-
-To learn more about Next.js, take a look at the following resources:
-
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
-
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+- **Views:** The main `<Calendar />` switches between day, week, month, and year. You can also use `<DayView />`, `<WeekView />`, `<MonthView />`, `<YearView />` directly with the same props pattern.
+- **Week view:** Events can be dragged horizontally and resized (left/right handles). Dragging past the week edges moves to the previous/next week. Overlapping events are laid out in separate rows.
+- **Types:** The package is written in TypeScript and exports types (e.g. `CalendarEvent`, `CalendarProps`, `WeekViewProps`). Use them for props and callbacks.
+- **Task modals:** Pass `mapFromEvent` to map a calendar event to your task shape and show `<TaskModal />` on click. Use `CreateTaskModal` and the `+` button in the week view for creating events.
+- **Helpers:** Exports like `mapTaskToEvent`, `mapEventToTask`, `getEventsForWeek`, `getTaskColorHex` help wire the calendar to your own data and colors.
