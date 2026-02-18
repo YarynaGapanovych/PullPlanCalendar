@@ -106,8 +106,8 @@ var SegmentedControl = ({
 };
 
 // src/components/Calendar.tsx
-var import_core = require("@dnd-kit/core");
-var import_dayjs9 = __toESM(require("dayjs"));
+var import_core2 = require("@dnd-kit/core");
+var import_dayjs10 = __toESM(require("dayjs"));
 var import_react7 = require("react");
 
 // src/components/ui/Button.tsx
@@ -816,11 +816,198 @@ function MonthView({
 }
 
 // src/components/WeekView.tsx
-var import_dayjs7 = __toESM(require("dayjs"));
+var import_core = require("@dnd-kit/core");
+var import_dayjs8 = __toESM(require("dayjs"));
 var import_react5 = require("react");
-var import_react_grid_layout = require("react-grid-layout");
-var import_styles = require("react-grid-layout/css/styles.css");
+
+// src/utils/weekViewLayout.ts
+var import_dayjs7 = __toESM(require("dayjs"));
+function getEventPlacement(event, weekStart, containerWidth, resizeOverlay) {
+  if (containerWidth <= 0) return null;
+  const eventStart = (0, import_dayjs7.default)(event.start);
+  const eventEnd = (0, import_dayjs7.default)(event.end);
+  const weekEnd = weekStart.add(6, "days");
+  const actualStart = eventStart.isBefore(weekStart) ? weekStart : eventStart;
+  const actualEnd = eventEnd.isAfter(weekEnd) ? weekEnd : eventEnd;
+  let startOffsetDays = actualStart.diff(weekStart, "days");
+  let durationDays = actualEnd.diff(actualStart, "days") + 1;
+  if (durationDays <= 0) return null;
+  if (resizeOverlay) {
+    startOffsetDays += resizeOverlay.leftDeltaDays;
+    durationDays += resizeOverlay.rightDeltaDays;
+    if (durationDays <= 0) return null;
+  }
+  const columnWidth = containerWidth / 7;
+  const leftPx = startOffsetDays * columnWidth;
+  const widthPx = durationDays * columnWidth;
+  return {
+    leftPx,
+    widthPx,
+    startOffsetDays,
+    durationDays,
+    columnWidth
+  };
+}
+function pixelDeltaToDayDelta(deltaPx, columnWidth) {
+  if (columnWidth <= 0) return 0;
+  return Math.round(deltaPx / columnWidth);
+}
+function getOverlapRowAssignments(placements) {
+  if (placements.length === 0) return { rowIndices: [], numRows: 0 };
+  const n = placements.length;
+  const indices = placements.map((_, i) => i);
+  indices.sort((a, b) => {
+    const pa = placements[a];
+    const pb = placements[b];
+    if (pa.startOffsetDays !== pb.startOffsetDays) return pa.startOffsetDays - pb.startOffsetDays;
+    return pb.durationDays - pa.durationDays;
+  });
+  const rowEnd = [];
+  const rowIndices = new Array(n);
+  for (const idx of indices) {
+    const start = placements[idx].startOffsetDays;
+    const end = start + placements[idx].durationDays;
+    let r = 0;
+    while (r < rowEnd.length && rowEnd[r] > start) r++;
+    if (r === rowEnd.length) rowEnd.push(0);
+    rowIndices[idx] = r;
+    rowEnd[r] = end;
+  }
+  const numRows = rowEnd.length;
+  return { rowIndices, numRows };
+}
+
+// src/components/WeekView.tsx
 var import_jsx_runtime11 = require("react/jsx-runtime");
+var ROW_HEIGHT = 50;
+function WeekEventCard({
+  event,
+  placement,
+  rowIndex,
+  readOnly,
+  onOpen,
+  dragDeltaX,
+  onResizeStart
+}) {
+  var _a;
+  const { attributes, listeners, setNodeRef, isDragging } = (0, import_core.useDraggable)({
+    id: event.id,
+    disabled: readOnly
+  });
+  const style = (0, import_react5.useMemo)(
+    () => {
+      var _a2;
+      return {
+        position: "absolute",
+        left: placement.leftPx,
+        top: rowIndex * ROW_HEIGHT,
+        width: placement.widthPx,
+        height: ROW_HEIGHT,
+        transform: dragDeltaX != null ? `translateX(${dragDeltaX}px)` : void 0,
+        boxSizing: "border-box",
+        backgroundColor: (_a2 = event.color) != null ? _a2 : "var(--event-bg, #e0e7ff)",
+        border: "1px solid var(--event-border, #c7d2fe)",
+        borderRadius: 4,
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "space-between",
+        padding: "0 4px",
+        cursor: readOnly ? "default" : "grab",
+        zIndex: isDragging ? 1 : 0
+      };
+    },
+    [
+      placement.leftPx,
+      placement.widthPx,
+      rowIndex,
+      dragDeltaX,
+      event.color,
+      readOnly,
+      isDragging
+    ]
+  );
+  return /* @__PURE__ */ (0, import_jsx_runtime11.jsxs)(
+    "div",
+    __spreadProps(__spreadValues({
+      ref: setNodeRef,
+      "data-slot": "event",
+      "data-event-id": event.id,
+      "data-color": (_a = event.color) != null ? _a : void 0,
+      style
+    }, readOnly ? {} : __spreadValues(__spreadValues({}, attributes), listeners)), {
+      children: [
+        !readOnly && /* @__PURE__ */ (0, import_jsx_runtime11.jsxs)(import_jsx_runtime11.Fragment, { children: [
+          /* @__PURE__ */ (0, import_jsx_runtime11.jsx)(
+            "div",
+            {
+              role: "button",
+              tabIndex: 0,
+              "aria-label": "Resize start",
+              onPointerDown: (e) => {
+                e.stopPropagation();
+                onResizeStart(event.id, "left", e.clientX);
+              },
+              style: {
+                position: "absolute",
+                left: 0,
+                top: 0,
+                bottom: 0,
+                width: 8,
+                cursor: "ew-resize"
+              }
+            }
+          ),
+          /* @__PURE__ */ (0, import_jsx_runtime11.jsx)(
+            "div",
+            {
+              role: "button",
+              tabIndex: 0,
+              "aria-label": "Resize end",
+              onPointerDown: (e) => {
+                e.stopPropagation();
+                onResizeStart(event.id, "right", e.clientX);
+              },
+              style: {
+                position: "absolute",
+                right: 0,
+                top: 0,
+                bottom: 0,
+                width: 8,
+                cursor: "ew-resize"
+              }
+            }
+          )
+        ] }),
+        /* @__PURE__ */ (0, import_jsx_runtime11.jsx)(
+          "span",
+          {
+            style: {
+              overflow: "hidden",
+              textOverflow: "ellipsis",
+              whiteSpace: "nowrap",
+              flex: 1
+            },
+            children: event.title
+          }
+        ),
+        /* @__PURE__ */ (0, import_jsx_runtime11.jsx)(
+          Button,
+          {
+            type: "button",
+            onMouseDown: (e) => e.stopPropagation(),
+            onClick: (e) => {
+              e.stopPropagation();
+              e.preventDefault();
+              onOpen();
+            },
+            "aria-label": `View ${event.title}`,
+            children: "View"
+          }
+        )
+      ]
+    })
+  );
+}
 function WeekView({
   startDate,
   scheduledEvents,
@@ -844,8 +1031,29 @@ function WeekView({
 }) {
   const [isTaskOpen, setIsTaskOpen] = (0, import_react5.useState)(false);
   const [isCreateTaskOpen, setIsCreateTaskOpen] = (0, import_react5.useState)(false);
-  const [selectedEvent, setSelectedEvent] = (0, import_react5.useState)(null);
+  const [selectedEvent, setSelectedEvent] = (0, import_react5.useState)(
+    null
+  );
   const containerRef = (0, import_react5.useRef)(null);
+  const [containerWidth, setContainerWidth] = (0, import_react5.useState)(0);
+  const [dragDelta, setDragDelta] = (0, import_react5.useState)(
+    null
+  );
+  const [resizePreview, setResizePreview] = (0, import_react5.useState)(null);
+  const [resizing, setResizing] = (0, import_react5.useState)(null);
+  const resizePreviewRef = (0, import_react5.useRef)({ leftDeltaDays: 0, rightDeltaDays: 0 });
+  const lastClampedDeltaRef = (0, import_react5.useRef)(null);
+  (0, import_react5.useEffect)(() => {
+    const el = containerRef.current;
+    if (!el) return;
+    const ro = new ResizeObserver((entries) => {
+      const entry = entries[0];
+      if (entry) setContainerWidth(entry.contentRect.width);
+    });
+    ro.observe(el);
+    setContainerWidth(el.getBoundingClientRect().width);
+    return () => ro.disconnect();
+  }, []);
   const openTask = () => setIsTaskOpen(true);
   const closeTask = () => {
     setIsTaskOpen(false);
@@ -873,111 +1081,109 @@ function WeekView({
     setSelectedEvent(event);
     openTask();
   };
-  const getEventGridData = (0, import_react5.useCallback)(
-    (event) => {
-      const eventStart = (0, import_dayjs7.default)(event.start);
-      const eventEnd = (0, import_dayjs7.default)(event.end);
-      const weekStart = startDate;
-      const weekEnd = startDate.add(6, "days");
-      const actualStart = eventStart.isBefore(weekStart) ? weekStart : eventStart;
-      const actualEnd = eventEnd.isAfter(weekEnd) ? weekEnd : eventEnd;
-      const startColumn = actualStart.diff(weekStart, "days");
-      const eventSpan = actualEnd.diff(actualStart, "days") + 1;
-      if (eventSpan <= 0) return null;
-      return {
-        i: `event-${event.id}`,
-        x: startColumn,
-        y: 1,
-        w: Math.min(eventSpan, 7 - startColumn),
-        h: 1
-      };
-    },
-    [startDate]
-  );
-  const eventLayouts = (0, import_react5.useMemo)(() => {
-    return scheduledEvents.map(getEventGridData).filter(
-      (gridData) => gridData !== null
-    );
-  }, [scheduledEvents, startDate, getEventGridData]);
-  const layouts = (0, import_react5.useMemo)(() => {
-    return {
-      lg: [
-        ...getWeekDaysWithDates().map(({ dayIndex }) => ({
-          i: `day-${dayIndex}`,
-          x: dayIndex,
-          y: 0,
-          w: 1,
-          h: 1,
-          static: true
-        })),
-        ...eventLayouts
-      ]
-    };
-  }, [eventLayouts, getWeekDaysWithDates]);
   const weekTitle = (0, import_react5.useMemo)(() => {
     const endDate = startDate.add(6, "days");
     return `${startDate.format("MMM D")} - ${endDate.format("MMM D, YYYY")}`;
   }, [startDate]);
-  const handlePreviousWeek = () => {
-    const newDate = startDate.subtract(1, "week");
-    setStartDate(newDate);
-  };
-  const handleNextWeek = () => {
-    const newDate = startDate.add(1, "week");
-    setStartDate(newDate);
-  };
-  const handleDrag = (0, import_react5.useCallback)(
-    (_layout, _oldItem, newItem, _placeholder, _e, element) => {
-      if (!newItem || !element || !containerRef.current) return;
-      const containerRect = containerRef.current.getBoundingClientRect();
-      const taskRect = element.getBoundingClientRect();
-      const leftEdge = containerRect.left;
-      const rightEdge = containerRect.right;
-      if (taskRect.left < leftEdge) {
-        newItem.x = 6;
-      }
-      if (taskRect.right > rightEdge) {
-        newItem.x = 0;
-      }
-    },
-    []
+  const handlePreviousWeek = (0, import_react5.useCallback)(() => {
+    setStartDate(startDate.subtract(1, "week"));
+  }, [startDate, setStartDate]);
+  const handleNextWeek = (0, import_react5.useCallback)(() => {
+    setStartDate(startDate.add(1, "week"));
+  }, [startDate, setStartDate]);
+  const sensors = (0, import_core.useSensors)(
+    (0, import_core.useSensor)(import_core.PointerSensor, { activationConstraint: { distance: 5 } })
   );
-  const handleDragStop = (0, import_react5.useCallback)(
-    (layout, _oldItem, newItem, _placeholder, _e, element) => {
-      if (!newItem || !element) return;
-      const event = scheduledEvents.find((ev) => `event-${ev.id}` === newItem.i);
-      if (!event) return;
-      let newStart = startDate.clone().add(newItem.x, "days");
-      const originalDuration = (0, import_dayjs7.default)(event.end).diff((0, import_dayjs7.default)(event.start), "days");
-      if (containerRef.current) {
-        const containerRect = containerRef.current.getBoundingClientRect();
-        const elRect = element.getBoundingClientRect();
-        const leftEdge = containerRect.left;
-        const rightEdge = containerRect.right;
-        if (elRect.left < leftEdge) {
-          newStart = newStart.subtract(originalDuration + 1, "days");
-          handlePreviousWeek();
-        }
-        if (elRect.right > rightEdge) {
-          newStart = newStart.add(originalDuration + 1, "days");
-          handleNextWeek();
-        }
+  const handleDragMove = (0, import_react5.useCallback)(
+    (event) => {
+      const id = String(event.active.id);
+      const ev = scheduledEvents.find((e) => e.id === id);
+      if (!ev || containerWidth <= 0) {
+        setDragDelta({ id, x: event.delta.x });
+        lastClampedDeltaRef.current = { id, x: event.delta.x };
+        return;
       }
-      const newEnd = newStart.add(originalDuration, "days");
-      const oldStart = (0, import_dayjs7.default)(event.start);
-      const oldEnd = (0, import_dayjs7.default)(event.end);
-      if (oldStart.isSame(newStart, "day") && oldEnd.isSame(newEnd, "day")) return;
-      const updatedEvent = __spreadProps(__spreadValues({}, event), { start: newStart, end: newEnd });
+      const placement = getEventPlacement(ev, startDate, containerWidth);
+      if (!placement) {
+        setDragDelta({ id, x: event.delta.x });
+        lastClampedDeltaRef.current = { id, x: event.delta.x };
+        return;
+      }
+      const minDeltaX = -placement.leftPx;
+      const maxDeltaX = containerWidth - (placement.leftPx + placement.widthPx);
+      const clampedX = Math.max(minDeltaX, Math.min(maxDeltaX, event.delta.x));
+      setDragDelta({ id, x: clampedX });
+      lastClampedDeltaRef.current = { id, x: clampedX };
+    },
+    [scheduledEvents, startDate, containerWidth]
+  );
+  const handleDragEnd = (0, import_react5.useCallback)(
+    (event) => {
+      var _a;
+      const { active, delta } = event;
+      const effectiveDeltaX = ((_a = lastClampedDeltaRef.current) == null ? void 0 : _a.id) === active.id ? lastClampedDeltaRef.current.x : delta.x;
+      setDragDelta(null);
+      lastClampedDeltaRef.current = null;
+      const ev = scheduledEvents.find((e) => e.id === active.id);
+      if (!ev || !containerRef.current) return;
+      const columnWidth = containerWidth / 7;
+      if (columnWidth <= 0) return;
+      const placement = getEventPlacement(ev, startDate, containerWidth);
+      if (!placement) return;
+      const durationDays = placement.durationDays;
+      const finalLeftPx = placement.leftPx + effectiveDeltaX;
+      const finalRightPx = placement.leftPx + placement.widthPx + effectiveDeltaX;
+      let newWeekStart = startDate;
+      let tentativeStartOffset;
+      if (finalLeftPx <= 0) {
+        handlePreviousWeek();
+        newWeekStart = startDate.subtract(1, "week");
+        tentativeStartOffset = Math.round(
+          (finalLeftPx + containerWidth) / columnWidth
+        );
+        tentativeStartOffset = Math.max(
+          0,
+          Math.min(7 - durationDays, tentativeStartOffset)
+        );
+      } else if (finalRightPx >= containerWidth) {
+        handleNextWeek();
+        newWeekStart = startDate.add(1, "week");
+        tentativeStartOffset = Math.round(
+          (finalLeftPx - containerWidth) / columnWidth
+        );
+        tentativeStartOffset = Math.max(
+          0,
+          Math.min(7 - durationDays, tentativeStartOffset)
+        );
+      } else {
+        const dayDelta = pixelDeltaToDayDelta(effectiveDeltaX, columnWidth);
+        tentativeStartOffset = placement.startOffsetDays + dayDelta;
+        tentativeStartOffset = Math.max(
+          0,
+          Math.min(7 - durationDays, tentativeStartOffset)
+        );
+      }
+      const newStart = newWeekStart.clone().add(tentativeStartOffset, "days");
+      const newEnd = newStart.clone().add(durationDays - 1, "days");
+      const oldStart = (0, import_dayjs8.default)(ev.start);
+      const oldEnd = (0, import_dayjs8.default)(ev.end);
+      if (oldStart.isSame(newStart, "day") && oldEnd.isSame(newEnd, "day"))
+        return;
+      const updatedEvent = __spreadProps(__spreadValues({}, ev), {
+        start: newStart,
+        end: newEnd
+      });
       const prevScheduled = [...scheduledEvents];
       const prevUnscheduled = [...unscheduledEvents];
-      const newScheduled = prevScheduled.map((ev) => ev.id === event.id ? updatedEvent : ev);
-      setScheduledEvents(newScheduled);
-      setUnscheduledEvents((prev) => prev.filter((ev) => ev.id !== event.id));
+      setScheduledEvents(
+        (prev) => prev.map((e) => e.id === ev.id ? updatedEvent : e)
+      );
+      setUnscheduledEvents((prev) => prev.filter((e) => e.id !== ev.id));
       if (onEventMove) {
         (async () => {
           try {
             await onEventMove({
-              id: event.id,
+              id: ev.id,
               start: newStart,
               end: newEnd,
               oldStart,
@@ -991,31 +1197,105 @@ function WeekView({
         })();
       }
     },
-    [startDate, scheduledEvents, setScheduledEvents, setUnscheduledEvents, onEventMove, view]
+    [
+      scheduledEvents,
+      unscheduledEvents,
+      containerWidth,
+      startDate,
+      setScheduledEvents,
+      setUnscheduledEvents,
+      onEventMove,
+      view,
+      handlePreviousWeek,
+      handleNextWeek
+    ]
   );
-  const handleResizeStop = (0, import_react5.useCallback)(
-    (layout) => {
-      const event = scheduledEvents.find((ev) => {
-        const layoutItem2 = layout.find((item) => item.i === `event-${ev.id}`);
-        return layoutItem2 != null;
+  const onResizeStart = (0, import_react5.useCallback)(
+    (eventId, handle, startX) => {
+      if (readOnly) return;
+      const evt = scheduledEvents.find((e) => e.id === eventId);
+      if (!evt) return;
+      const placement = getEventPlacement(evt, startDate, containerWidth);
+      if (!placement) return;
+      setResizing({
+        eventId,
+        handle,
+        startX,
+        startOffsetDays: placement.startOffsetDays,
+        durationDays: placement.durationDays,
+        columnWidth: placement.columnWidth
       });
-      if (!event) return;
-      const layoutItem = layout.find((item) => item.i === `event-${event.id}`);
-      if (!layoutItem) return;
-      const oldStart = (0, import_dayjs7.default)(event.start);
-      const oldEnd = (0, import_dayjs7.default)(event.end);
-      const newStart = startDate.clone().add(layoutItem.x, "days");
-      const newEnd = startDate.clone().add(layoutItem.x + layoutItem.w - 1, "days");
-      const updatedEvent = __spreadProps(__spreadValues({}, event), { start: newStart, end: newEnd });
+      setResizePreview({
+        eventId,
+        leftDeltaDays: 0,
+        rightDeltaDays: 0
+      });
+    },
+    [readOnly, scheduledEvents, startDate, containerWidth]
+  );
+  (0, import_react5.useEffect)(() => {
+    if (!resizing) return;
+    const {
+      eventId,
+      handle,
+      startX,
+      startOffsetDays,
+      durationDays,
+      columnWidth
+    } = resizing;
+    const onMove = (e) => {
+      const deltaX = e.clientX - startX;
+      const dayDelta = pixelDeltaToDayDelta(deltaX, columnWidth);
+      if (handle === "left") {
+        const leftDeltaDays = Math.max(
+          -startOffsetDays,
+          Math.min(dayDelta, durationDays - 1)
+        );
+        resizePreviewRef.current = { leftDeltaDays, rightDeltaDays: 0 };
+        setResizePreview({
+          eventId,
+          leftDeltaDays,
+          rightDeltaDays: 0
+        });
+      } else {
+        const rightDeltaDays = Math.max(
+          1 - durationDays,
+          Math.min(dayDelta, 7 - (startOffsetDays + durationDays))
+        );
+        resizePreviewRef.current = { leftDeltaDays: 0, rightDeltaDays };
+        setResizePreview({
+          eventId,
+          leftDeltaDays: 0,
+          rightDeltaDays
+        });
+      }
+    };
+    const onUp = () => {
+      const current = resizePreviewRef.current;
+      setResizing(null);
+      setResizePreview(null);
+      const evt = scheduledEvents.find((e) => e.id === eventId);
+      if (!evt) return;
+      const newStartOffsetDays = startOffsetDays + current.leftDeltaDays;
+      const newDurationDays = handle === "left" ? durationDays - current.leftDeltaDays : durationDays + current.rightDeltaDays;
+      if (newDurationDays < 1) return;
+      const newStart = startDate.clone().add(newStartOffsetDays, "days");
+      const newEnd = newStart.clone().add(newDurationDays - 1, "days");
+      const oldStart = (0, import_dayjs8.default)(evt.start);
+      const oldEnd = (0, import_dayjs8.default)(evt.end);
+      const updatedEvent = __spreadProps(__spreadValues({}, evt), {
+        start: newStart,
+        end: newEnd
+      });
       const prevScheduled = [...scheduledEvents];
       setScheduledEvents(
-        (prev) => prev.map((ev) => ev.id === event.id ? updatedEvent : ev)
+        (prev) => prev.map((e) => e.id === eventId ? updatedEvent : e)
       );
       if (onEventResize) {
         (async () => {
           try {
             await onEventResize({
-              id: event.id,
+              id: eventId,
               start: newStart,
               end: newEnd,
               oldStart,
@@ -1027,13 +1307,25 @@ function WeekView({
           }
         })();
       }
-    },
-    [startDate, scheduledEvents, setScheduledEvents, onEventResize, view]
-  );
+    };
+    window.addEventListener("pointermove", onMove, { capture: true });
+    window.addEventListener("pointerup", onUp, { capture: true });
+    return () => {
+      window.removeEventListener("pointermove", onMove, { capture: true });
+      window.removeEventListener("pointerup", onUp, { capture: true });
+    };
+  }, [
+    resizing,
+    scheduledEvents,
+    startDate,
+    setScheduledEvents,
+    onEventResize,
+    view
+  ]);
   const handleUnassignedEventDrop = (0, import_react5.useCallback)(
     (event, dayIndex) => {
-      const oldStart = (0, import_dayjs7.default)(event.start);
-      const oldEnd = (0, import_dayjs7.default)(event.end);
+      const oldStart = (0, import_dayjs8.default)(event.start);
+      const oldEnd = (0, import_dayjs8.default)(event.end);
       const newStart = startDate.clone().add(dayIndex, "days");
       const newEnd = newStart.clone().add(1, "days");
       const updatedEvent = __spreadProps(__spreadValues({}, event), {
@@ -1062,7 +1354,15 @@ function WeekView({
         })();
       }
     },
-    [startDate, scheduledEvents, setScheduledEvents, setUnscheduledEvents, onEventMove, view]
+    [
+      startDate,
+      scheduledEvents,
+      unscheduledEvents,
+      setScheduledEvents,
+      setUnscheduledEvents,
+      onEventMove,
+      view
+    ]
   );
   const handleCreateSubmit = (0, import_react5.useCallback)(
     async (data) => {
@@ -1081,8 +1381,8 @@ function WeekView({
           await onEventCreate({
             id: newEvent.id,
             title: newEvent.title,
-            start: (0, import_dayjs7.default)(newEvent.start),
-            end: (0, import_dayjs7.default)(newEvent.end)
+            start: (0, import_dayjs8.default)(newEvent.start),
+            end: (0, import_dayjs8.default)(newEvent.end)
           });
         } catch (e) {
           setScheduledEvents(prevScheduled);
@@ -1091,84 +1391,117 @@ function WeekView({
     },
     [scheduledEvents, setScheduledEvents, onEventCreate]
   );
+  const gridStyle = (0, import_react5.useMemo)(
+    () => ({
+      display: "grid",
+      gridTemplateColumns: "repeat(7, 1fr)",
+      width: "100%"
+    }),
+    []
+  );
+  const eventsWithPlacementAndRow = (0, import_react5.useMemo)(() => {
+    const withPlacement = scheduledEvents.map((event) => ({
+      event,
+      placement: getEventPlacement(
+        event,
+        startDate,
+        containerWidth,
+        (resizePreview == null ? void 0 : resizePreview.eventId) === event.id ? {
+          leftDeltaDays: resizePreview.leftDeltaDays,
+          rightDeltaDays: resizePreview.rightDeltaDays
+        } : void 0
+      )
+    })).filter(
+      (w) => w.placement != null
+    );
+    const { rowIndices, numRows } = getOverlapRowAssignments(
+      withPlacement.map((w) => ({
+        startOffsetDays: w.placement.startOffsetDays,
+        durationDays: w.placement.durationDays
+      }))
+    );
+    return { items: withPlacement, rowIndices, numRows };
+  }, [
+    scheduledEvents,
+    startDate,
+    containerWidth,
+    resizePreview == null ? void 0 : resizePreview.eventId,
+    resizePreview == null ? void 0 : resizePreview.leftDeltaDays,
+    resizePreview == null ? void 0 : resizePreview.rightDeltaDays
+  ]);
+  const eventsOverlayStyle = (0, import_react5.useMemo)(
+    () => ({
+      position: "relative",
+      height: Math.max(
+        ROW_HEIGHT,
+        eventsWithPlacementAndRow.numRows * ROW_HEIGHT
+      ),
+      width: "100%"
+    }),
+    [eventsWithPlacementAndRow.numRows]
+  );
   return /* @__PURE__ */ (0, import_jsx_runtime11.jsxs)("div", { "data-slot": "week-view", className, style, children: [
     /* @__PURE__ */ (0, import_jsx_runtime11.jsxs)("div", { "data-slot": "week-view-nav", children: [
-      /* @__PURE__ */ (0, import_jsx_runtime11.jsx)(Button, { type: "button", onClick: handlePreviousWeek, "aria-label": "Previous week", children: "\u2190" }),
+      /* @__PURE__ */ (0, import_jsx_runtime11.jsx)(
+        Button,
+        {
+          type: "button",
+          onClick: handlePreviousWeek,
+          "aria-label": "Previous week",
+          children: "\u2190"
+        }
+      ),
       /* @__PURE__ */ (0, import_jsx_runtime11.jsx)(Title, { level: 4, children: weekTitle }),
       /* @__PURE__ */ (0, import_jsx_runtime11.jsx)(Button, { type: "button", onClick: handleNextWeek, "aria-label": "Next week", children: "\u2192" })
     ] }),
-    /* @__PURE__ */ (0, import_jsx_runtime11.jsx)("div", { "data-slot": "week-view-grid", ref: containerRef, children: /* @__PURE__ */ (0, import_jsx_runtime11.jsxs)(
-      import_react_grid_layout.Responsive,
-      {
-        layouts: { lg: layouts.lg },
-        cols: { lg: 7, md: 7, sm: 7, xs: 7, xxs: 7 },
-        rowHeight: 50,
-        width: 1200,
-        dragConfig: { enabled: !readOnly },
-        resizeConfig: { enabled: !readOnly },
-        onDragStop: handleDragStop,
-        onDrag: handleDrag,
-        onResizeStop: handleResizeStop,
-        children: [
-          getWeekDaysWithDates().map(({ dayIndex, date }) => /* @__PURE__ */ (0, import_jsx_runtime11.jsxs)(
-            "div",
+    /* @__PURE__ */ (0, import_jsx_runtime11.jsxs)("div", { "data-slot": "week-view-grid", ref: containerRef, style: gridStyle, children: [
+      getWeekDaysWithDates().map(({ dayIndex, date }) => /* @__PURE__ */ (0, import_jsx_runtime11.jsxs)(
+        "div",
+        {
+          "data-slot": "week-day-cell",
+          "data-day-index": dayIndex,
+          "data-date": date,
+          style: { padding: "4px", borderRight: "1px solid #e5e7eb" },
+          children: [
+            /* @__PURE__ */ (0, import_jsx_runtime11.jsx)("span", { children: (0, import_dayjs8.default)(date).format("ddd") }),
+            /* @__PURE__ */ (0, import_jsx_runtime11.jsx)("span", { children: (0, import_dayjs8.default)(date).format("D") })
+          ]
+        },
+        `day-${dayIndex}`
+      )),
+      /* @__PURE__ */ (0, import_jsx_runtime11.jsx)("div", { style: __spreadValues({ gridColumn: "1 / -1" }, eventsOverlayStyle), children: /* @__PURE__ */ (0, import_jsx_runtime11.jsx)(
+        import_core.DndContext,
+        {
+          sensors,
+          onDragMove: handleDragMove,
+          onDragEnd: handleDragEnd,
+          children: eventsWithPlacementAndRow.items.map(({ event }, i) => /* @__PURE__ */ (0, import_jsx_runtime11.jsx)(
+            WeekEventCard,
             {
-              "data-slot": "week-day-cell",
-              "data-day-index": dayIndex,
-              "data-date": date,
-              "data-grid": {
-                i: `day-${dayIndex}`,
-                x: dayIndex,
-                y: 0,
-                w: 1,
-                h: 1.5,
-                static: true
-              },
-              children: [
-                /* @__PURE__ */ (0, import_jsx_runtime11.jsx)("span", { children: (0, import_dayjs7.default)(date).format("ddd") }),
-                /* @__PURE__ */ (0, import_jsx_runtime11.jsx)("span", { children: (0, import_dayjs7.default)(date).format("D") })
-              ]
+              event,
+              placement: eventsWithPlacementAndRow.items[i].placement,
+              rowIndex: eventsWithPlacementAndRow.rowIndices[i],
+              readOnly,
+              onOpen: () => handleOpenEvent(event),
+              dragDeltaX: (dragDelta == null ? void 0 : dragDelta.id) === event.id ? dragDelta.x : null,
+              onResizeStart
             },
-            `day-${dayIndex}`
-          )),
-          scheduledEvents.map((event) => {
-            var _a;
-            const gridData = getEventGridData(event);
-            if (!gridData) return null;
-            return /* @__PURE__ */ (0, import_jsx_runtime11.jsxs)(
-              "div",
-              {
-                "data-grid": gridData,
-                "data-slot": "event",
-                "data-event-id": event.id,
-                "data-color": (_a = event.color) != null ? _a : void 0,
-                children: [
-                  event.title,
-                  /* @__PURE__ */ (0, import_jsx_runtime11.jsx)(
-                    Button,
-                    {
-                      type: "button",
-                      onMouseDown: (e) => e.stopPropagation(),
-                      onClick: (e) => {
-                        e.stopPropagation();
-                        e.preventDefault();
-                        handleOpenEvent(event);
-                      },
-                      "aria-label": `View ${event.title}`,
-                      children: "View"
-                    }
-                  )
-                ]
-              },
-              gridData.i
-            );
-          })
-        ]
-      }
-    ) }),
+            event.id
+          ))
+        }
+      ) })
+    ] }),
     /* @__PURE__ */ (0, import_jsx_runtime11.jsxs)("div", { "data-slot": "unscheduled-list", children: [
       /* @__PURE__ */ (0, import_jsx_runtime11.jsx)("h3", { "data-slot": "unscheduled-title", children: "Unscheduled events" }),
-      !readOnly && /* @__PURE__ */ (0, import_jsx_runtime11.jsx)(Tooltip, { title: "Add new event", children: /* @__PURE__ */ (0, import_jsx_runtime11.jsx)(Button, { type: "button", onClick: openCreateTask, "aria-label": "Add event", children: "+" }) }),
+      !readOnly && /* @__PURE__ */ (0, import_jsx_runtime11.jsx)(Tooltip, { title: "Add new event", children: /* @__PURE__ */ (0, import_jsx_runtime11.jsx)(
+        Button,
+        {
+          type: "button",
+          onClick: openCreateTask,
+          "aria-label": "Add event",
+          children: "+"
+        }
+      ) }),
       /* @__PURE__ */ (0, import_jsx_runtime11.jsx)(
         CreateTaskModal,
         {
@@ -1217,7 +1550,7 @@ function WeekView({
 }
 
 // src/components/YearView.tsx
-var import_dayjs8 = __toESM(require("dayjs"));
+var import_dayjs9 = __toESM(require("dayjs"));
 var import_react6 = require("react");
 var import_jsx_runtime12 = require("react/jsx-runtime");
 function YearView({
@@ -1237,14 +1570,14 @@ function YearView({
 }) {
   const [selectedDate, setSelectedDate] = (0, import_react6.useState)(null);
   const [isModalOpen, setIsModalOpen] = (0, import_react6.useState)(false);
-  const [currentYear, setCurrentYear] = (0, import_react6.useState)((0, import_dayjs8.default)().year());
+  const [currentYear, setCurrentYear] = (0, import_react6.useState)((0, import_dayjs9.default)().year());
   const openModalWithDate = (date) => {
     setSelectedDate(date);
     setIsModalOpen(true);
   };
   const generateCalendarData = () => {
-    const year = (0, import_dayjs8.default)().year();
-    const startDate = (0, import_dayjs8.default)(`${year}-01-01`);
+    const year = (0, import_dayjs9.default)().year();
+    const startDate = (0, import_dayjs9.default)(`${year}-01-01`);
     const weeks = [];
     let currentWeek = [];
     let currentDate = startDate.clone();
@@ -1276,7 +1609,7 @@ function YearView({
       /* @__PURE__ */ (0, import_jsx_runtime12.jsx)(Button, { type: "button", onClick: handleNextYear, "aria-label": "Next year", children: "\u2192" })
     ] }),
     /* @__PURE__ */ (0, import_jsx_runtime12.jsx)("div", { "data-slot": "year-view-months", children: [...Array(12)].map((_, monthIndex) => /* @__PURE__ */ (0, import_jsx_runtime12.jsxs)("div", { "data-slot": "year-month", children: [
-      /* @__PURE__ */ (0, import_jsx_runtime12.jsx)(Title, { level: 4, children: (0, import_dayjs8.default)(`${currentYear}-${monthIndex + 1}-01`).format("MMMM") }),
+      /* @__PURE__ */ (0, import_jsx_runtime12.jsx)(Title, { level: 4, children: (0, import_dayjs9.default)(`${currentYear}-${monthIndex + 1}-01`).format("MMMM") }),
       /* @__PURE__ */ (0, import_jsx_runtime12.jsx)("div", { "data-slot": "year-month-weekdays", children: ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map((day) => /* @__PURE__ */ (0, import_jsx_runtime12.jsx)("div", { "data-slot": "year-weekday", children: day }, day)) }),
       /* @__PURE__ */ (0, import_jsx_runtime12.jsx)("div", { "data-slot": "year-month-weeks", children: calendarData.filter((week) => week.some((day) => day.month() === monthIndex)).map((week, weekIndex) => /* @__PURE__ */ (0, import_jsx_runtime12.jsxs)("div", { "data-slot": "year-week", children: [
         /* @__PURE__ */ (0, import_jsx_runtime12.jsx)(
@@ -1359,7 +1692,7 @@ function Calendar({
   const [unscheduledEvents, setUnscheduledEvents] = (0, import_react7.useState)(
     initialUnscheduledEvents
   );
-  const [startDate, setStartDate] = (0, import_react7.useState)((0, import_dayjs9.default)().startOf("week"));
+  const [startDate, setStartDate] = (0, import_react7.useState)((0, import_dayjs10.default)().startOf("week"));
   const getWeekDaysWithDates = () => {
     return Array.from({ length: 7 }).map((_, index) => {
       const date2 = startDate.clone().add(index, "days");
@@ -1374,8 +1707,8 @@ function Calendar({
     if (!draggedEvent) return;
     const dropDateIndex = (_a2 = over.data.current) == null ? void 0 : _a2.index;
     if (dropDateIndex === void 0) return;
-    const oldStart = (0, import_dayjs9.default)(draggedEvent.start);
-    const oldEnd = (0, import_dayjs9.default)(draggedEvent.end);
+    const oldStart = (0, import_dayjs10.default)(draggedEvent.start);
+    const oldEnd = (0, import_dayjs10.default)(draggedEvent.end);
     const newStart = startDate.clone().add(dropDateIndex, "days");
     const newEnd = newStart.clone().add(1, "days");
     const prevScheduled = [...scheduledEvents];
@@ -1383,8 +1716,8 @@ function Calendar({
     setScheduledEvents((prev) => [
       ...prev.filter((ev) => ev.id !== draggedEvent.id),
       __spreadProps(__spreadValues({}, draggedEvent), {
-        start: (0, import_dayjs9.default)(newStart.format("YYYY-MM-DD")),
-        end: (0, import_dayjs9.default)(newEnd.format("YYYY-MM-DD"))
+        start: (0, import_dayjs10.default)(newStart.format("YYYY-MM-DD")),
+        end: (0, import_dayjs10.default)(newEnd.format("YYYY-MM-DD"))
       })
     ]);
     setUnscheduledEvents((prev) => prev.filter((ev) => ev.id !== draggedEvent.id));
@@ -1473,7 +1806,7 @@ function Calendar({
       }
     )
   };
-  return /* @__PURE__ */ (0, import_jsx_runtime13.jsx)(import_core.DndContext, { onDragEnd: handleDragEnd, children: /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)("div", { "data-slot": "calendar-root", className, style, children: [
+  return /* @__PURE__ */ (0, import_jsx_runtime13.jsx)(import_core2.DndContext, { onDragEnd: handleDragEnd, children: /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)("div", { "data-slot": "calendar-root", className, style, children: [
     showSwitcher && views.length > 0 && /* @__PURE__ */ (0, import_jsx_runtime13.jsx)("div", { "data-slot": "calendar-view-switcher", children: /* @__PURE__ */ (0, import_jsx_runtime13.jsx)(
       SegmentedControl,
       {

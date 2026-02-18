@@ -1,5 +1,21 @@
 This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
 
+## Using the calendar library
+
+**Import `pull-plan-calendar/dist/calendar.css` in your app.**
+
+In CSS:
+
+```css
+@import "pull-plan-calendar/dist/calendar.css";
+```
+
+In JavaScript/TypeScript:
+
+```js
+import "pull-plan-calendar/dist/calendar.css";
+```
+
 ## Getting Started
 
 First, run the development server:
