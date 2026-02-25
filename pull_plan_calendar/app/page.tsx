@@ -1,12 +1,11 @@
 "use client";
 
-import {
-  CalendarContainer,
-  mapTaskToEvent,
-  mapEventToTask,
-} from "src";
-import { getMockScheduledTasks, getMockUnscheduledTasks } from "@/app/mocks/tasks";
 import { MOCK_AREAS } from "@/app/mocks/areas";
+import {
+  getMockScheduledTasks,
+  getMockUnscheduledTasks,
+} from "@/app/mocks/tasks";
+import { CalendarContainer, mapEventToTask, mapTaskToEvent } from "src";
 
 export default function Home() {
   return (
@@ -15,9 +14,12 @@ export default function Home() {
         <CalendarContainer
           showSwitcher={true}
           showTabs={true}
+          views={["week", "year", "day", "month"]}
           areas={MOCK_AREAS}
           initialScheduledEvents={getMockScheduledTasks().map(mapTaskToEvent)}
-          initialUnscheduledEvents={getMockUnscheduledTasks().map(mapTaskToEvent)}
+          initialUnscheduledEvents={getMockUnscheduledTasks().map(
+            mapTaskToEvent,
+          )}
           mapFromEvent={mapEventToTask}
         />
       </main>

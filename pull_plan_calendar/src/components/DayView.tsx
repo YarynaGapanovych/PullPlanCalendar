@@ -7,9 +7,39 @@ import type { CalendarEvent, CalendarViewMode } from "../types/calendar";
 import type { CalendarEventMovePayload, CalendarEventResizePayload, CalendarEventCreatePayload } from "../types/calendar";
 import type { Task } from "../types/task";
 import dayjs from "dayjs";
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { CreateTaskModal } from "./tasks/CreateTaskModal";
 import { TaskModal } from "./tasks/TaskModal";
+
+const MIN_EVENT_HEIGHT_PX = 24;
+
+function isFullDayEvent(event: CalendarEvent, dayStart: dayjs.Dayjs, dayEnd: dayjs.Dayjs): boolean {
+  const start = dayjs(event.start);
+  const end = dayjs(event.end);
+  return (
+    (start.isBefore(dayStart) || start.isSame(dayStart)) &&
+    (end.isAfter(dayEnd) || end.isSame(dayEnd))
+  );
+}
+
+function getEventDayPosition(
+  event: CalendarEvent,
+  dayStart: dayjs.Dayjs,
+  dayEnd: dayjs.Dayjs,
+  hourRowHeight: number,
+): { topPx: number; heightPx: number } | null {
+  const start = dayjs(event.start);
+  const end = dayjs(event.end);
+  const visualStart = start.isBefore(dayStart) ? dayStart : start;
+  const visualEnd = end.isAfter(dayEnd) ? dayEnd : end;
+  if (!visualStart.isBefore(visualEnd) && !visualStart.isSame(visualEnd)) return null;
+  const topPx = visualStart.diff(dayStart, "minute") * (hourRowHeight / 60);
+  const heightPx = Math.max(
+    MIN_EVENT_HEIGHT_PX,
+    visualEnd.diff(visualStart, "minute") * (hourRowHeight / 60),
+  );
+  return { topPx, heightPx };
+}
 
 export interface DayViewProps {
   startDate: dayjs.Dayjs;
@@ -82,19 +112,37 @@ export default function DayView({
 
   const hours = useMemo(() => Array.from({ length: 24 }, (_, i) => i), []);
   const HOUR_ROW_HEIGHT = 48;
+  const dayStart = useMemo(() => startDate.startOf("day"), [startDate]);
+  const dayEnd = useMemo(() => startDate.endOf("day"), [startDate]);
+
+  const [now, setNow] = useState(() => dayjs());
+  const isViewingToday = startDate.isSame(now, "day");
+  useEffect(() => {
+    if (!isViewingToday) return;
+    const t = setInterval(() => setNow(dayjs()), 60_000);
+    return () => clearInterval(t);
+  }, [isViewingToday]);
 
   const eventsForDay = useMemo(() => {
-    const dayStart = startDate.startOf("day");
-    const dayEnd = startDate.endOf("day");
     return scheduledEvents.filter((event) => {
-      const eventStart = dayjs(event.start).startOf("day");
-      const eventEnd = dayjs(event.end).endOf("day");
+      const eventStart = dayjs(event.start);
+      const eventEnd = dayjs(event.end);
       return (
         (eventStart.isSame(dayStart) || eventStart.isBefore(dayEnd)) &&
         (eventEnd.isSame(dayEnd) || eventEnd.isAfter(dayStart))
       );
     });
-  }, [scheduledEvents, startDate]);
+  }, [scheduledEvents, dayStart, dayEnd]);
+
+  const { fullDayEvents, timedEvents } = useMemo(() => {
+    const full: CalendarEvent[] = [];
+    const timed: CalendarEvent[] = [];
+    for (const event of eventsForDay) {
+      if (isFullDayEvent(event, dayStart, dayEnd)) full.push(event);
+      else timed.push(event);
+    }
+    return { fullDayEvents: full, timedEvents: timed };
+  }, [eventsForDay, dayStart, dayEnd]);
 
   const handleOpenEvent = async (event: CalendarEvent) => {
     if (onEventClick) {
@@ -188,6 +236,37 @@ export default function DayView({
         <Button type="button" onClick={handleNextDay} aria-label="Next day">→</Button>
       </div>
 
+      {fullDayEvents.length > 0 && (
+        <div data-slot="day-multiday">
+          <h3 data-slot="day-multiday-title">All-day / multi-day</h3>
+          <div data-slot="day-multiday-items">
+            {fullDayEvents.map((event) => (
+              <div
+                key={event.id}
+                data-slot="event"
+                data-event-id={event.id}
+                data-allday
+                data-color={event.color ?? undefined}
+              >
+                <span>{event.title}</span>
+                <Button
+                  type="button"
+                  onMouseDown={(e) => e.stopPropagation()}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    e.preventDefault();
+                    handleOpenEvent(event);
+                  }}
+                  aria-label={`View ${event.title}`}
+                >
+                  View
+                </Button>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       <div
         data-slot="day-view-grid"
         style={{
@@ -208,33 +287,69 @@ export default function DayView({
         ))}
         <div
           data-slot="day-events"
-          style={{ gridColumn: 2, gridRow: "1 / -1", minHeight: 24 * HOUR_ROW_HEIGHT }}
+          style={{
+            gridColumn: 2,
+            gridRow: "1 / -1",
+            minHeight: 24 * HOUR_ROW_HEIGHT,
+            position: "relative",
+            borderLeft: "1px solid #f3f4f6",
+          }}
         >
-          {eventsForDay.length === 0 ? (
-            <p data-slot="day-no-events">No events scheduled</p>
+          {isViewingToday && (
+            <div
+              data-slot="day-now-line"
+              aria-hidden
+              style={{
+                position: "absolute",
+                left: 0,
+                right: 0,
+                top: now.diff(dayStart, "minute") * (HOUR_ROW_HEIGHT / 60),
+                height: 0,
+                borderTop: "2px solid var(--now-line-color, #dc2626)",
+                pointerEvents: "none",
+                zIndex: 2,
+              }}
+            />
+          )}
+          {timedEvents.length === 0 ? (
+            <p data-slot="day-no-events" style={{ position: "absolute", top: "1rem", left: "1rem", right: "1rem", textAlign: "center", margin: 0 }}>No events scheduled</p>
           ) : (
-            eventsForDay.map((event) => (
-              <div
-                key={event.id}
-                data-slot="event"
-                data-event-id={event.id}
-                data-color={event.color ?? undefined}
-              >
-                <span>{event.title}</span>
-                <Button
-                  type="button"
-                  onMouseDown={(e) => e.stopPropagation()}
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    e.preventDefault();
-                    handleOpenEvent(event);
+            timedEvents.map((event) => {
+              const pos = getEventDayPosition(event, dayStart, dayEnd, HOUR_ROW_HEIGHT);
+              if (!pos) return null;
+              return (
+                <div
+                  key={event.id}
+                  data-slot="event"
+                  data-event-id={event.id}
+                  data-color={event.color ?? undefined}
+                  style={{
+                    position: "absolute",
+                    left: 4,
+                    right: 4,
+                    top: pos.topPx,
+                    height: pos.heightPx,
+                    boxSizing: "border-box",
+                    padding: "2px 6px",
+                    overflow: "hidden",
                   }}
-                  aria-label={`View ${event.title}`}
                 >
-                  View
-                </Button>
-              </div>
-            ))
+                  <span>{event.title}</span>
+                  <Button
+                    type="button"
+                    onMouseDown={(e) => e.stopPropagation()}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      e.preventDefault();
+                      handleOpenEvent(event);
+                    }}
+                    aria-label={`View ${event.title}`}
+                  >
+                    View
+                  </Button>
+                </div>
+              );
+            })
           )}
         </div>
       </div>

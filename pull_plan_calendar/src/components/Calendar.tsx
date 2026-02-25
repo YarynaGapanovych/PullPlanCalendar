@@ -107,12 +107,14 @@ export default function Calendar({
   className,
   style,
 }: CalendarProps) {
+  // Always show views in order: day → week → month → year (only those in `views`).
+  const orderedViews = ALL_VIEWS.filter((v) => views.includes(v));
   const [zoomLevel, setZoomLevel] = useState<CalendarViewMode>(() =>
-    views.length > 0 ? views[0] : "week",
+    orderedViews.length > 0 ? orderedViews[0] : "week",
   );
-  const effectiveZoom = views.includes(zoomLevel)
+  const effectiveZoom = orderedViews.includes(zoomLevel)
     ? zoomLevel
-    : (views[0] ?? "week");
+    : (orderedViews[0] ?? "week");
 
   const [scheduledEvents, setScheduledEvents] = useState<CalendarEvent[]>(
     initialScheduledEvents,
@@ -243,11 +245,11 @@ export default function Calendar({
   return (
     <DndContext onDragEnd={handleDragEnd}>
       <div data-slot="calendar-root" className={className} style={style}>
-        {showSwitcher && views.length > 0 && (
+        {showSwitcher && orderedViews.length > 0 && (
           <div data-slot="calendar-view-switcher">
             <SegmentedControl
               value={effectiveZoom}
-              options={views.map((v) => ({ label: VIEW_LABELS[v], value: v }))}
+              options={orderedViews.map((v) => ({ label: VIEW_LABELS[v], value: v }))}
               onChange={(value) => setZoomLevel(value)}
             />
           </div>
