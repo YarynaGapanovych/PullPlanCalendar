@@ -28,10 +28,10 @@ export interface CalendarContainerProps {
   views?: CalendarViewMode[];
   /** Areas to show as tabs. When empty and showTabs is true, a single calendar is shown without tabs. */
   areas?: Area[];
-  /** Initial scheduled events. */
-  initialScheduledEvents?: CalendarEvent[];
-  /** Initial unscheduled events. */
-  initialUnscheduledEvents?: CalendarEvent[];
+  /** Initial scheduled events (uncontrolled). */
+  defaultScheduledEvents?: CalendarEvent[];
+  /** Initial unscheduled events (uncontrolled). */
+  defaultUnscheduledEvents?: CalendarEvent[];
   onEventMove?: (payload: CalendarEventMovePayload) => Promise<void>;
   onEventResize?: (payload: CalendarEventResizePayload) => Promise<void>;
   onEventCreate?: (payload: CalendarEventCreatePayload) => Promise<void>;
@@ -51,6 +51,26 @@ export interface CalendarContainerProps {
   }>;
   /** Custom modal for viewing event details (day view). If not set, default TaskModal is used. */
   EventDetailModal?: React.ComponentType<TaskModalProps>;
+  /** Content for day view "previous day" nav button. Default: ← */
+  previousDayButtonContent?: React.ReactNode;
+  /** Content for day view "next day" nav button. Default: → */
+  nextDayButtonContent?: React.ReactNode;
+  /** Content for week view "previous week" nav button. Default: ← */
+  previousWeekButtonContent?: React.ReactNode;
+  /** Content for week view "next week" nav button. Default: → */
+  nextWeekButtonContent?: React.ReactNode;
+  /** Content for month view "previous month" nav button. Default: ← */
+  previousMonthButtonContent?: React.ReactNode;
+  /** Content for month view "next month" nav button. Default: → */
+  nextMonthButtonContent?: React.ReactNode;
+  /** Content for year view "previous year" nav button. Default: ← */
+  previousYearButtonContent?: React.ReactNode;
+  /** Content for year view "next year" nav button. Default: → */
+  nextYearButtonContent?: React.ReactNode;
+  /** Class name for the view switcher (SegmentedControl container). */
+  viewSwitcherClassName?: string;
+  /** Class name for each view switcher option button. */
+  viewSwitcherButtonClassName?: string;
 }
 
 export default function CalendarContainer({
@@ -58,8 +78,8 @@ export default function CalendarContainer({
   showTabs = true,
   views = ALL_VIEWS,
   areas = [],
-  initialScheduledEvents = [],
-  initialUnscheduledEvents = [],
+  defaultScheduledEvents = [],
+  defaultUnscheduledEvents = [],
   onEventMove,
   onEventResize,
   onEventCreate,
@@ -71,6 +91,16 @@ export default function CalendarContainer({
   CreateEventModal,
   EventActionButton,
   EventDetailModal,
+  previousDayButtonContent,
+  nextDayButtonContent,
+  previousWeekButtonContent,
+  nextWeekButtonContent,
+  previousMonthButtonContent,
+  nextMonthButtonContent,
+  previousYearButtonContent,
+  nextYearButtonContent,
+  viewSwitcherClassName,
+  viewSwitcherButtonClassName,
 }: CalendarContainerProps) {
   const effectiveAreas =
     areas.length > 0 ? areas : [{ id: "", name: "Calendar" } as Area];
@@ -85,8 +115,8 @@ export default function CalendarContainer({
           <Calendar
             showSwitcher={showSwitcher}
             views={views}
-            initialScheduledEvents={initialScheduledEvents}
-            initialUnscheduledEvents={initialUnscheduledEvents}
+            defaultScheduledEvents={defaultScheduledEvents}
+            defaultUnscheduledEvents={defaultUnscheduledEvents}
             onEventMove={onEventMove}
             onEventResize={onEventResize}
             onEventCreate={onEventCreate}
@@ -98,6 +128,16 @@ export default function CalendarContainer({
             CreateEventModal={CreateEventModal}
             EventActionButton={EventActionButton}
             EventDetailModal={EventDetailModal}
+            previousDayButtonContent={previousDayButtonContent}
+            nextDayButtonContent={nextDayButtonContent}
+            previousWeekButtonContent={previousWeekButtonContent}
+            nextWeekButtonContent={nextWeekButtonContent}
+            previousMonthButtonContent={previousMonthButtonContent}
+            nextMonthButtonContent={nextMonthButtonContent}
+            previousYearButtonContent={previousYearButtonContent}
+            nextYearButtonContent={nextYearButtonContent}
+            viewSwitcherClassName={viewSwitcherClassName}
+            viewSwitcherButtonClassName={viewSwitcherButtonClassName}
           />
         </Card>
       </div>
@@ -117,8 +157,8 @@ export default function CalendarContainer({
               <Calendar
                 showSwitcher={showSwitcher}
                 views={views}
-                initialScheduledEvents={initialScheduledEvents}
-                initialUnscheduledEvents={initialUnscheduledEvents}
+                defaultScheduledEvents={defaultScheduledEvents}
+                defaultUnscheduledEvents={defaultUnscheduledEvents}
                 onEventMove={onEventMove}
                 onEventResize={onEventResize}
                 onEventCreate={onEventCreate}
@@ -130,6 +170,16 @@ export default function CalendarContainer({
                 CreateEventModal={CreateEventModal}
                 EventActionButton={EventActionButton}
                 EventDetailModal={EventDetailModal}
+                previousDayButtonContent={previousDayButtonContent}
+                nextDayButtonContent={nextDayButtonContent}
+                previousWeekButtonContent={previousWeekButtonContent}
+                nextWeekButtonContent={nextWeekButtonContent}
+                previousMonthButtonContent={previousMonthButtonContent}
+                nextMonthButtonContent={nextMonthButtonContent}
+                previousYearButtonContent={previousYearButtonContent}
+                nextYearButtonContent={nextYearButtonContent}
+                viewSwitcherClassName={viewSwitcherClassName}
+                viewSwitcherButtonClassName={viewSwitcherButtonClassName}
               />
             </Card>
           ),

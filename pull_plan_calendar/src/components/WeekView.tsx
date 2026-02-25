@@ -3,7 +3,6 @@
 import {
   DndContext,
   PointerSensor,
-  useDraggable,
   useSensor,
   useSensors,
   type DragEndEvent,
@@ -11,6 +10,7 @@ import {
 } from "@dnd-kit/core";
 import dayjs from "dayjs";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCreateEventSubmit } from "../hooks/useCreateEventSubmit";
 import type {
   CalendarEvent,
   CalendarEventCreatePayload,
@@ -28,6 +28,7 @@ import type { CreateTaskModalProps } from "./tasks/CreateTaskModal";
 import { CreateTaskModal } from "./tasks/CreateTaskModal";
 import type { TaskModalProps } from "./tasks/TaskModal";
 import { TaskModal } from "./tasks/TaskModal";
+import { WeekEventCard } from "./WeekEventCard";
 import { Button } from "./ui/Button";
 import { Title } from "./ui/Title";
 import { Tooltip } from "./ui/Tooltip";
@@ -41,7 +42,6 @@ export interface WeekViewProps {
   unscheduledEvents: CalendarEvent[];
   setScheduledEvents: React.Dispatch<React.SetStateAction<CalendarEvent[]>>;
   setUnscheduledEvents: React.Dispatch<React.SetStateAction<CalendarEvent[]>>;
-  getWeekDaysWithDates: () => { dayIndex: number; date: string }[];
   onEventMove?: (payload: CalendarEventMovePayload) => Promise<void>;
   onEventResize?: (payload: CalendarEventResizePayload) => Promise<void>;
   onEventCreate?: (payload: CalendarEventCreatePayload) => Promise<void>;
@@ -65,148 +65,12 @@ export interface WeekViewProps {
   }>;
   /** Custom modal for viewing event details. If not set, default TaskModal is used (requires mapFromEvent). */
   EventDetailModal?: React.ComponentType<TaskModalProps>;
+  /** Content for the "previous week" nav button. Default: ← */
+  previousWeekButtonContent?: React.ReactNode;
+  /** Content for the "next week" nav button. Default: → */
+  nextWeekButtonContent?: React.ReactNode;
   className?: string;
   style?: React.CSSProperties;
-}
-
-interface WeekEventCardProps {
-  event: CalendarEvent;
-  placement: NonNullable<ReturnType<typeof getEventPlacement>>;
-  rowIndex: number;
-  readOnly: boolean;
-  onOpen: () => void;
-  dragDeltaX: number | null;
-  onResizeStart: (
-    eventId: string,
-    handle: "left" | "right",
-    startX: number,
-  ) => void;
-  EventActionButton?: React.ComponentType<{
-    event: CalendarEvent;
-    onOpen: () => void;
-  }>;
-}
-
-function WeekEventCard({
-  event,
-  placement,
-  rowIndex,
-  readOnly,
-  onOpen,
-  dragDeltaX,
-  onResizeStart,
-  EventActionButton,
-}: WeekEventCardProps) {
-  const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
-    id: event.id,
-    disabled: readOnly,
-  });
-
-  const style: React.CSSProperties = useMemo(
-    () => ({
-      position: "absolute" as const,
-      left: placement.leftPx,
-      top: rowIndex * ROW_HEIGHT,
-      width: placement.widthPx,
-      height: ROW_HEIGHT,
-      transform: dragDeltaX != null ? `translateX(${dragDeltaX}px)` : undefined,
-      boxSizing: "border-box",
-      backgroundColor: event.color ?? "var(--event-bg, #e0e7ff)",
-      border: "1px solid var(--event-border, #c7d2fe)",
-      borderRadius: 4,
-      display: "flex",
-      alignItems: "center",
-      justifyContent: "space-between",
-      padding: "0 4px",
-      cursor: readOnly ? "default" : "grab",
-      zIndex: isDragging ? 1 : 0,
-    }),
-    [
-      placement.leftPx,
-      placement.widthPx,
-      rowIndex,
-      dragDeltaX,
-      event.color,
-      readOnly,
-      isDragging,
-    ],
-  );
-
-  return (
-    <div
-      ref={setNodeRef}
-      data-slot="event"
-      data-event-id={event.id}
-      data-color={event.color ?? undefined}
-      style={style}
-      {...(readOnly ? {} : { ...attributes, ...listeners })}
-    >
-      {!readOnly && (
-        <>
-          <div
-            role="button"
-            tabIndex={0}
-            aria-label="Resize start"
-            onPointerDown={(e) => {
-              e.stopPropagation();
-              onResizeStart(event.id, "left", e.clientX);
-            }}
-            style={{
-              position: "absolute",
-              left: 0,
-              top: 0,
-              bottom: 0,
-              width: 8,
-              cursor: "ew-resize",
-            }}
-          />
-          <div
-            role="button"
-            tabIndex={0}
-            aria-label="Resize end"
-            onPointerDown={(e) => {
-              e.stopPropagation();
-              onResizeStart(event.id, "right", e.clientX);
-            }}
-            style={{
-              position: "absolute",
-              right: 0,
-              top: 0,
-              bottom: 0,
-              width: 8,
-              cursor: "ew-resize",
-            }}
-          />
-        </>
-      )}
-      <span
-        style={{
-          overflow: "hidden",
-          textOverflow: "ellipsis",
-          whiteSpace: "nowrap",
-          flex: 1,
-        }}
-      >
-        {event.title}
-      </span>
-      {EventActionButton ? (
-        <EventActionButton event={event} onOpen={onOpen} />
-      ) : (
-        <Button
-          type="button"
-          onMouseDown={(e) => e.stopPropagation()}
-          onClick={(e) => {
-            e.stopPropagation();
-            e.preventDefault();
-            onOpen();
-          }}
-          aria-label={`View ${event.title}`}
-        >
-          View
-        </Button>
-      )}
-    </div>
-  );
 }
 
 export default function WeekView({
@@ -215,7 +79,6 @@ export default function WeekView({
   unscheduledEvents,
   setScheduledEvents,
   setUnscheduledEvents,
-  getWeekDaysWithDates,
   setStartDate,
   onEventMove,
   onEventResize,
@@ -229,6 +92,8 @@ export default function WeekView({
   CreateEventModal,
   EventActionButton,
   EventDetailModal,
+  previousWeekButtonContent = "←",
+  nextWeekButtonContent = "→",
   className,
   style,
 }: WeekViewProps) {
@@ -303,6 +168,15 @@ export default function WeekView({
     const endDate = startDate.add(6, "days");
     return `${startDate.format("MMM D")} - ${endDate.format("MMM D, YYYY")}`;
   }, [startDate]);
+
+  const weekDaysWithDates = useMemo(
+    () =>
+      Array.from({ length: 7 }).map((_, index) => {
+        const date = startDate.clone().add(index, "days");
+        return { dayIndex: index, date: date.format("YYYY-MM-DD") };
+      }),
+    [startDate],
+  );
 
   const handlePreviousWeek = useCallback(() => {
     setStartDate(startDate.subtract(1, "week"));
@@ -599,36 +473,11 @@ export default function WeekView({
     ],
   );
 
-  const handleCreateSubmit = useCallback(
-    async (data: {
-      name: string;
-      startDate: dayjs.Dayjs;
-      endDate: dayjs.Dayjs;
-    }) => {
-      const id = `event-${Date.now()}-${Math.random().toString(36).slice(2)}`;
-      const newEvent: CalendarEvent = {
-        id,
-        title: data.name,
-        start: data.startDate,
-        end: data.endDate,
-      };
-      const prevScheduled = [...scheduledEvents];
-      setScheduledEvents((prev) => [...prev, newEvent]);
-      closeCreateTask();
-      if (onEventCreate) {
-        try {
-          await onEventCreate({
-            id: newEvent.id,
-            title: newEvent.title,
-            start: dayjs(newEvent.start),
-            end: dayjs(newEvent.end),
-          });
-        } catch {
-          setScheduledEvents(prevScheduled);
-        }
-      }
-    },
-    [scheduledEvents, setScheduledEvents, onEventCreate],
+  const handleCreateSubmit = useCreateEventSubmit(
+    scheduledEvents,
+    setScheduledEvents,
+    onEventCreate,
+    closeCreateTask,
   );
 
   const gridStyle: React.CSSProperties = useMemo(
@@ -689,16 +538,16 @@ export default function WeekView({
           onClick={handlePreviousWeek}
           aria-label="Previous week"
         >
-          ←
+          {previousWeekButtonContent}
         </Button>
         <Title level={4}>{weekTitle}</Title>
         <Button type="button" onClick={handleNextWeek} aria-label="Next week">
-          →
+          {nextWeekButtonContent}
         </Button>
       </div>
 
       <div data-slot="week-view-grid" ref={containerRef} style={gridStyle}>
-        {getWeekDaysWithDates().map(({ dayIndex, date }) => (
+        {weekDaysWithDates.map(({ dayIndex, date }) => (
           <div
             key={`day-${dayIndex}`}
             data-slot="week-day-cell"

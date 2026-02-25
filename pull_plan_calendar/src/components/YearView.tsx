@@ -30,6 +30,10 @@ export interface YearViewProps {
   AddEventButton?: React.ComponentType<{ onClick: () => void }>;
   /** Custom create-event modal. If not set, default CreateTaskModal is used. */
   CreateEventModal?: React.ComponentType<CreateTaskModalProps>;
+  /** Content for the "previous year" nav button. Default: ← */
+  previousYearButtonContent?: React.ReactNode;
+  /** Content for the "next year" nav button. Default: → */
+  nextYearButtonContent?: React.ReactNode;
   className?: string;
   style?: React.CSSProperties;
 }
@@ -46,6 +50,8 @@ export default function YearView({
   mapFromEvent,
   AddEventButton,
   CreateEventModal,
+  previousYearButtonContent = "←",
+  nextYearButtonContent = "→",
   className,
   style,
 }: YearViewProps) {
@@ -100,11 +106,11 @@ export default function YearView({
           onClick={handlePreviousYear}
           aria-label="Previous year"
         >
-          ←
+          {previousYearButtonContent}
         </Button>
         <Title level={4}>{currentYear}</Title>
         <Button type="button" onClick={handleNextYear} aria-label="Next year">
-          →
+          {nextYearButtonContent}
         </Button>
         {!readOnly && AddEventButton && (
           <AddEventButton onClick={() => openModalWithDate(dayjs())} />

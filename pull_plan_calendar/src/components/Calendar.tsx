@@ -9,11 +9,16 @@ import type {
   CalendarEventCreatePayload,
 } from "../types/calendar";
 import type { Task } from "../types/task";
-import { DndContext, type DragEndEvent } from "@dnd-kit/core";
+import { DndContext } from "@dnd-kit/core";
 import dayjs, { type Dayjs } from "dayjs";
 
 /** Patch for a single event update (e.g. drag/resize). Use with onEventChange. */
-export type CalendarEventPatch = Partial<Pick<CalendarEvent, "start" | "end" | "title" | "resourceId" | "color" | "meta">>;
+export type CalendarEventPatch = Partial<
+  Pick<
+    CalendarEvent,
+    "start" | "end" | "title" | "resourceId" | "color" | "meta"
+  >
+>;
 
 export interface CalendarProps {
   // --- Controlled mode ---
@@ -35,6 +40,10 @@ export interface CalendarProps {
   // --- Uncontrolled mode ---
   /** Initial events when using uncontrolled mode. */
   defaultEvents?: CalendarEvent[];
+  /** Initial scheduled events (uncontrolled). */
+  defaultScheduledEvents?: CalendarEvent[];
+  /** Initial unscheduled events (uncontrolled). */
+  defaultUnscheduledEvents?: CalendarEvent[];
   /** Initial visible date when using uncontrolled mode. */
   defaultDate?: Dayjs;
   /** Initial view mode when using uncontrolled mode. */
@@ -43,10 +52,6 @@ export interface CalendarProps {
   // --- Other ---
   showSwitcher?: boolean;
   views?: CalendarViewMode[];
-  /** @deprecated Use defaultEvents or controlled events. Initial scheduled events (uncontrolled). */
-  initialScheduledEvents?: CalendarEvent[];
-  /** @deprecated Use defaultEvents or controlled events. Initial unscheduled events (uncontrolled). */
-  initialUnscheduledEvents?: CalendarEvent[];
   /** Called when an event is moved (drag). Reject to rollback. */
   onEventMove?: (payload: CalendarEventMovePayload) => Promise<void>;
   /** Called when an event is resized. Reject to rollback. */
@@ -76,19 +81,39 @@ export interface CalendarProps {
   EventDetailModal?: React.ComponentType<
     import("./tasks/TaskModal").TaskModalProps
   >;
+  /** Content for day view "previous day" nav button. Default: ← */
+  previousDayButtonContent?: React.ReactNode;
+  /** Content for day view "next day" nav button. Default: → */
+  nextDayButtonContent?: React.ReactNode;
+  /** Content for week view "previous week" nav button. Default: ← */
+  previousWeekButtonContent?: React.ReactNode;
+  /** Content for week view "next week" nav button. Default: → */
+  nextWeekButtonContent?: React.ReactNode;
+  /** Content for month view "previous month" nav button. Default: ← */
+  previousMonthButtonContent?: React.ReactNode;
+  /** Content for month view "next month" nav button. Default: → */
+  nextMonthButtonContent?: React.ReactNode;
+  /** Content for year view "previous year" nav button. Default: ← */
+  previousYearButtonContent?: React.ReactNode;
+  /** Content for year view "next year" nav button. Default: → */
+  nextYearButtonContent?: React.ReactNode;
   /** Root element class name. */
   className?: string;
   /** Root element inline style. */
   style?: React.CSSProperties;
+  /** Class name for the view switcher (SegmentedControl container). */
+  viewSwitcherClassName?: string;
+  /** Class name for each view switcher option button. */
+  viewSwitcherButtonClassName?: string;
 }
 
 import { useState } from "react";
+import { useCalendarDragEnd } from "../hooks/useCalendarDragEnd";
+import { useCalendarViews, ALL_VIEWS } from "../hooks/useCalendarViews";
 import DayView from "./DayView";
 import MonthView from "./MonthView";
 import WeekView from "./WeekView";
 import YearView from "./YearView";
-
-const ALL_VIEWS: CalendarViewMode[] = ["day", "week", "month", "year"];
 
 const VIEW_LABELS: Record<CalendarViewMode, string> = {
   day: "Daily",
@@ -106,12 +131,12 @@ export default function Calendar({
   view,
   onViewChange,
   defaultEvents,
+  defaultScheduledEvents,
+  defaultUnscheduledEvents,
   defaultDate,
   defaultView,
   showSwitcher = true,
   views = ALL_VIEWS,
-  initialScheduledEvents = [],
-  initialUnscheduledEvents = [],
   onEventMove,
   onEventResize,
   onEventCreate,
@@ -123,77 +148,38 @@ export default function Calendar({
   CreateEventModal,
   EventActionButton,
   EventDetailModal,
+  previousDayButtonContent,
+  nextDayButtonContent,
+  previousWeekButtonContent,
+  nextWeekButtonContent,
+  previousMonthButtonContent,
+  nextMonthButtonContent,
+  previousYearButtonContent,
+  nextYearButtonContent,
   className,
   style,
+  viewSwitcherClassName,
+  viewSwitcherButtonClassName,
 }: CalendarProps) {
-  // Always show views in order: day → week → month → year (only those in `views`).
-  const orderedViews = ALL_VIEWS.filter((v) => views.includes(v));
-  const [zoomLevel, setZoomLevel] = useState<CalendarViewMode>(() =>
-    orderedViews.length > 0 ? orderedViews[0] : "week",
-  );
-  const effectiveZoom = orderedViews.includes(zoomLevel)
-    ? zoomLevel
-    : (orderedViews[0] ?? "week");
+  const { orderedViews, setZoomLevel, effectiveZoom } = useCalendarViews(views);
 
   const [scheduledEvents, setScheduledEvents] = useState<CalendarEvent[]>(
-    initialScheduledEvents,
+    () => defaultScheduledEvents ?? defaultEvents ?? [],
   );
   const [unscheduledEvents, setUnscheduledEvents] = useState<CalendarEvent[]>(
-    initialUnscheduledEvents,
+    () => defaultUnscheduledEvents ?? [],
   );
   const [startDate, setStartDate] = useState<Dayjs>(dayjs().startOf("week"));
 
-  const getWeekDaysWithDates = () => {
-    return Array.from({ length: 7 }).map((_, index) => {
-      const date = startDate.clone().add(index, "days");
-      return { dayIndex: index, date: date.format("YYYY-MM-DD") };
-    });
-  };
-
-  const handleDragEnd = async (event: DragEndEvent) => {
-    const { active, over } = event;
-    if (!over) return;
-
-    const draggedEvent = scheduledEvents.find((ev) => ev.id === active.id);
-    if (!draggedEvent) return;
-
-    const dropDateIndex = over.data.current?.index;
-    if (dropDateIndex === undefined) return;
-
-    const oldStart = dayjs(draggedEvent.start);
-    const oldEnd = dayjs(draggedEvent.end);
-    const newStart = startDate.clone().add(dropDateIndex, "days");
-    const newEnd = newStart.clone().add(1, "days");
-
-    const prevScheduled = [...scheduledEvents];
-    const prevUnscheduled = [...unscheduledEvents];
-
-    setScheduledEvents((prev) => [
-      ...prev.filter((ev) => ev.id !== draggedEvent.id),
-      {
-        ...draggedEvent,
-        start: dayjs(newStart.format("YYYY-MM-DD")),
-        end: dayjs(newEnd.format("YYYY-MM-DD")),
-      },
-    ]);
-    setUnscheduledEvents((prev) => prev.filter((ev) => ev.id !== draggedEvent.id));
-
-    try {
-      if (onEventMove) {
-        await onEventMove({
-          id: draggedEvent.id,
-          start: newStart,
-          end: newEnd,
-          oldStart,
-          oldEnd,
-          view: effectiveZoom,
-        });
-      }
-    } catch {
-      setScheduledEvents(prevScheduled);
-      setUnscheduledEvents(prevUnscheduled);
-    }
-  };
+  const handleDragEnd = useCalendarDragEnd(
+    startDate,
+    scheduledEvents,
+    unscheduledEvents,
+    setScheduledEvents,
+    setUnscheduledEvents,
+    onEventMove,
+    effectiveZoom,
+  );
 
   const zoomLevelView = {
     day: (
@@ -215,6 +201,8 @@ export default function Calendar({
         CreateEventModal={CreateEventModal}
         EventActionButton={EventActionButton}
         EventDetailModal={EventDetailModal}
+        previousDayButtonContent={previousDayButtonContent}
+        nextDayButtonContent={nextDayButtonContent}
       />
     ),
     week: (
@@ -225,7 +213,6 @@ export default function Calendar({
         unscheduledEvents={unscheduledEvents}
         setScheduledEvents={setScheduledEvents}
         setUnscheduledEvents={setUnscheduledEvents}
-        getWeekDaysWithDates={getWeekDaysWithDates}
         onEventMove={onEventMove}
         onEventResize={onEventResize}
         onEventCreate={onEventCreate}
@@ -237,6 +224,8 @@ export default function Calendar({
         CreateEventModal={CreateEventModal}
         EventActionButton={EventActionButton}
         EventDetailModal={EventDetailModal}
+        previousWeekButtonContent={previousWeekButtonContent}
+        nextWeekButtonContent={nextWeekButtonContent}
       />
     ),
     month: (
@@ -251,6 +240,8 @@ export default function Calendar({
         mapFromEvent={mapFromEvent}
         AddEventButton={AddEventButton}
         CreateEventModal={CreateEventModal}
+        previousMonthButtonContent={previousMonthButtonContent}
+        nextMonthButtonContent={nextMonthButtonContent}
       />
     ),
     year: (
@@ -265,6 +256,8 @@ export default function Calendar({
         mapFromEvent={mapFromEvent}
         AddEventButton={AddEventButton}
         CreateEventModal={CreateEventModal}
+        previousYearButtonContent={previousYearButtonContent}
+        nextYearButtonContent={nextYearButtonContent}
       />
     ),
   };
@@ -276,8 +269,13 @@ export default function Calendar({
           <div data-slot="calendar-view-switcher">
             <SegmentedControl
               value={effectiveZoom}
-              options={orderedViews.map((v) => ({ label: VIEW_LABELS[v], value: v }))}
+              options={orderedViews.map((v) => ({
+                label: VIEW_LABELS[v],
+                value: v,
+              }))}
               onChange={(value) => setZoomLevel(value)}
+              className={viewSwitcherClassName}
+              buttonClassName={viewSwitcherButtonClassName}
             />
           </div>
         )}

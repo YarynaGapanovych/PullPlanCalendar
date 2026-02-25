@@ -2,6 +2,7 @@
 
 import dayjs from "dayjs";
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCreateEventSubmit } from "../hooks/useCreateEventSubmit";
 import type {
   CalendarEvent,
   CalendarEventCreatePayload,
@@ -14,6 +15,7 @@ import type { CreateTaskModalProps } from "./tasks/CreateTaskModal";
 import { CreateTaskModal } from "./tasks/CreateTaskModal";
 import type { TaskModalProps } from "./tasks/TaskModal";
 import { TaskModal } from "./tasks/TaskModal";
+import { EventActionButtonSlot } from "./EventActionButtonSlot";
 import { Button } from "./ui/Button";
 import { Title } from "./ui/Title";
 import { Tooltip } from "./ui/Tooltip";
@@ -83,6 +85,10 @@ export interface DayViewProps {
   }>;
   /** Custom modal for viewing event details. If not set, default TaskModal is used (requires mapFromEvent). */
   EventDetailModal?: React.ComponentType<TaskModalProps>;
+  /** Content for the "previous day" nav button. Default: ← */
+  previousDayButtonContent?: React.ReactNode;
+  /** Content for the "next day" nav button. Default: → */
+  nextDayButtonContent?: React.ReactNode;
   className?: string;
   style?: React.CSSProperties;
 }
@@ -106,6 +112,8 @@ export default function DayView({
   CreateEventModal,
   EventActionButton,
   EventDetailModal,
+  previousDayButtonContent = "←",
+  nextDayButtonContent = "→",
   className,
   style,
 }: DayViewProps) {
@@ -183,24 +191,6 @@ export default function DayView({
     openTask();
   };
 
-  const renderEventActionButton = (event: CalendarEvent) =>
-    EventActionButton ? (
-      <EventActionButton event={event} onOpen={() => handleOpenEvent(event)} />
-    ) : (
-      <Button
-        type="button"
-        onMouseDown={(e) => e.stopPropagation()}
-        onClick={(e) => {
-          e.stopPropagation();
-          e.preventDefault();
-          handleOpenEvent(event);
-        }}
-        aria-label={`View ${event.title}`}
-      >
-        View
-      </Button>
-    );
-
   const handlePreviousDay = () => {
     setStartDate(startDate.subtract(1, "day"));
   };
@@ -252,36 +242,11 @@ export default function DayView({
     ],
   );
 
-  const handleCreateSubmit = useCallback(
-    async (data: {
-      name: string;
-      startDate: dayjs.Dayjs;
-      endDate: dayjs.Dayjs;
-    }) => {
-      const id = `event-${Date.now()}-${Math.random().toString(36).slice(2)}`;
-      const newEvent: CalendarEvent = {
-        id,
-        title: data.name,
-        start: data.startDate,
-        end: data.endDate,
-      };
-      const prevScheduled = [...scheduledEvents];
-      setScheduledEvents((prev) => [...prev, newEvent]);
-      closeCreateTask();
-      if (onEventCreate) {
-        try {
-          await onEventCreate({
-            id: newEvent.id,
-            title: newEvent.title,
-            start: dayjs(newEvent.start),
-            end: dayjs(newEvent.end),
-          });
-        } catch {
-          setScheduledEvents(prevScheduled);
-        }
-      }
-    },
-    [scheduledEvents, setScheduledEvents, onEventCreate],
+  const handleCreateSubmit = useCreateEventSubmit(
+    scheduledEvents,
+    setScheduledEvents,
+    onEventCreate,
+    closeCreateTask,
   );
 
   return (
@@ -292,11 +257,11 @@ export default function DayView({
           onClick={handlePreviousDay}
           aria-label="Previous day"
         >
-          ←
+          {previousDayButtonContent}
         </Button>
         <Title level={4}>{dayTitle}</Title>
         <Button type="button" onClick={handleNextDay} aria-label="Next day">
-          →
+          {nextDayButtonContent}
         </Button>
       </div>
 
@@ -313,7 +278,11 @@ export default function DayView({
                 data-color={event.color ?? undefined}
               >
                 <span>{event.title}</span>
-                {renderEventActionButton(event)}
+                <EventActionButtonSlot
+                  event={event}
+                  onOpen={() => handleOpenEvent(event)}
+                  EventActionButton={EventActionButton}
+                />
               </div>
             ))}
           </div>
@@ -411,7 +380,11 @@ export default function DayView({
                   }}
                 >
                   <span>{event.title}</span>
-                  {renderEventActionButton(event)}
+                  <EventActionButtonSlot
+                    event={event}
+                    onOpen={() => handleOpenEvent(event)}
+                    EventActionButton={EventActionButton}
+                  />
                 </div>
               );
             })

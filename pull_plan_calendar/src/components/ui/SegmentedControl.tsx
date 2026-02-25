@@ -7,8 +7,11 @@ export interface SegmentedControlProps {
   options: Array<{
     label: React.ReactNode;
     value: CalendarViewMode;
+    className?: string;
   }>;
   className?: string;
+  /** Applied to every option button. */
+  buttonClassName?: string;
 }
 
 export const SegmentedControl = ({
@@ -16,6 +19,7 @@ export const SegmentedControl = ({
   onChange,
   options,
   className,
+  buttonClassName,
 }: SegmentedControlProps) => {
   return (
     <div data-slot="segmented-control" role="tablist" className={className}>
@@ -27,6 +31,9 @@ export const SegmentedControl = ({
           aria-selected={value === option.value}
           data-slot="segmented-control-option"
           data-value={option.value}
+          className={[buttonClassName, option.className]
+            .filter(Boolean)
+            .join(" ")}
           onClick={() => onChange(option.value)}
         >
           {option.label}

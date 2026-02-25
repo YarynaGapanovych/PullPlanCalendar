@@ -1,15 +1,15 @@
 "use client";
 
-import "../utils/calendarHelpers";
-import { Button } from "./ui/Button";
-import { Title } from "./ui/Title";
 import dayjs, { type Dayjs } from "dayjs";
 import { useMemo, useState } from "react";
 import type { CalendarEvent, CalendarViewMode } from "../types/calendar";
 import type { Task } from "../types/task";
+import "../utils/calendarHelpers";
 import { getEventsForWeek } from "../utils/calendarHelpers";
-import { CreateTaskModal } from "./tasks/CreateTaskModal";
 import type { CreateTaskModalProps } from "./tasks/CreateTaskModal";
+import { CreateTaskModal } from "./tasks/CreateTaskModal";
+import { Button } from "./ui/Button";
+import { Title } from "./ui/Title";
 import { Week } from "./Week";
 
 export interface MonthViewProps {
@@ -30,6 +30,10 @@ export interface MonthViewProps {
   AddEventButton?: React.ComponentType<{ onClick: () => void }>;
   /** Custom create-event modal. If not set, default CreateTaskModal is used. */
   CreateEventModal?: React.ComponentType<CreateTaskModalProps>;
+  /** Content for the "previous month" nav button. Default: ← */
+  previousMonthButtonContent?: React.ReactNode;
+  /** Content for the "next month" nav button. Default: → */
+  nextMonthButtonContent?: React.ReactNode;
   className?: string;
   style?: React.CSSProperties;
 }
@@ -46,6 +50,8 @@ export default function MonthView({
   mapFromEvent,
   AddEventButton,
   CreateEventModal,
+  previousMonthButtonContent = "←",
+  nextMonthButtonContent = "→",
   className,
   style,
 }: MonthViewProps) {
@@ -78,6 +84,7 @@ export default function MonthView({
     }
     return weeks;
   };
+
   const calendarData = useMemo(() => generateCalendarData(), []);
 
   const getEventsForWeekInMonth = (week: Dayjs[]) =>
@@ -94,9 +101,19 @@ export default function MonthView({
   return (
     <div data-slot="month-view" className={className} style={style}>
       <div data-slot="month-view-nav">
-        <Button type="button" onClick={handlePreviousMonth} aria-label="Previous month">←</Button>
-        <Title level={4}>{dayjs(`${dayjs().year()}-${currentMonth + 1}-01`).format("MMMM")}</Title>
-        <Button type="button" onClick={handleNextMonth} aria-label="Next month">→</Button>
+        <Button
+          type="button"
+          onClick={handlePreviousMonth}
+          aria-label="Previous month"
+        >
+          {previousMonthButtonContent}
+        </Button>
+        <Title level={4}>
+          {dayjs(`${dayjs().year()}-${currentMonth + 1}-01`).format("MMMM")}
+        </Title>
+        <Button type="button" onClick={handleNextMonth} aria-label="Next month">
+          {nextMonthButtonContent}
+        </Button>
         {!readOnly && AddEventButton && (
           <AddEventButton onClick={() => openModalWithDate(dayjs())} />
         )}
@@ -104,7 +121,9 @@ export default function MonthView({
       <div data-slot="month-view-body">
         <div data-slot="month-view-weekdays">
           {["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map((day) => (
-            <div key={day} data-slot="month-weekday">{day}</div>
+            <div key={day} data-slot="month-weekday">
+              {day}
+            </div>
           ))}
         </div>
         <div data-slot="month-view-weeks">

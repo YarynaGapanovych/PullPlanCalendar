@@ -16,8 +16,8 @@ export default function Home() {
           showTabs={true}
           views={["week", "year", "day", "month"]}
           areas={MOCK_AREAS}
-          initialScheduledEvents={getMockScheduledTasks().map(mapTaskToEvent)}
-          initialUnscheduledEvents={getMockUnscheduledTasks().map(
+          defaultScheduledEvents={getMockScheduledTasks().map(mapTaskToEvent)}
+          defaultUnscheduledEvents={getMockUnscheduledTasks().map(
             mapTaskToEvent,
           )}
           mapFromEvent={mapEventToTask}
