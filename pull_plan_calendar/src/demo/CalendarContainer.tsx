@@ -11,6 +11,8 @@ import type {
   CalendarEventCreatePayload,
 } from "../types/calendar";
 import type { Area, Task } from "../types/task";
+import type { CreateTaskModalProps } from "../components/tasks/CreateTaskModal";
+import type { TaskModalProps } from "../components/tasks/TaskModal";
 import type { Dayjs } from "dayjs";
 import { useState } from "react";
 
@@ -38,6 +40,17 @@ export interface CalendarContainerProps {
   readOnly?: boolean;
   /** Optional: map event → task for TaskModal (e.g. mapEventToTask). */
   mapFromEvent?: (event: CalendarEvent) => Task;
+  /** Custom "add event" button (day view); receives onClick. If not set, default "+" is used. */
+  AddEventButton?: React.ComponentType<{ onClick: () => void }>;
+  /** Custom create-event modal (day view). If not set, default CreateTaskModal is used. */
+  CreateEventModal?: React.ComponentType<CreateTaskModalProps>;
+  /** Custom button to open event details (day view). Receives event and onOpen. */
+  EventActionButton?: React.ComponentType<{
+    event: CalendarEvent;
+    onOpen: () => void;
+  }>;
+  /** Custom modal for viewing event details (day view). If not set, default TaskModal is used. */
+  EventDetailModal?: React.ComponentType<TaskModalProps>;
 }
 
 export default function CalendarContainer({
@@ -54,6 +67,10 @@ export default function CalendarContainer({
   onDateClick,
   readOnly = false,
   mapFromEvent,
+  AddEventButton,
+  CreateEventModal,
+  EventActionButton,
+  EventDetailModal,
 }: CalendarContainerProps) {
   const effectiveAreas =
     areas.length > 0 ? areas : [{ id: "", name: "Calendar" } as Area];
@@ -77,6 +94,10 @@ export default function CalendarContainer({
             onDateClick={onDateClick}
             readOnly={readOnly}
             mapFromEvent={mapFromEvent}
+            AddEventButton={AddEventButton}
+            CreateEventModal={CreateEventModal}
+            EventActionButton={EventActionButton}
+            EventDetailModal={EventDetailModal}
           />
         </Card>
       </div>
@@ -105,6 +126,10 @@ export default function CalendarContainer({
                 onDateClick={onDateClick}
                 readOnly={readOnly}
                 mapFromEvent={mapFromEvent}
+                AddEventButton={AddEventButton}
+                CreateEventModal={CreateEventModal}
+                EventActionButton={EventActionButton}
+                EventDetailModal={EventDetailModal}
               />
             </Card>
           ),

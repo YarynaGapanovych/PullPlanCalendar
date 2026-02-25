@@ -1,19 +1,30 @@
 "use client";
 
+import dayjs from "dayjs";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import type {
+  CalendarEvent,
+  CalendarEventCreatePayload,
+  CalendarEventMovePayload,
+  CalendarEventResizePayload,
+  CalendarViewMode,
+} from "../types/calendar";
+import type { Task } from "../types/task";
+import type { CreateTaskModalProps } from "./tasks/CreateTaskModal";
+import { CreateTaskModal } from "./tasks/CreateTaskModal";
+import type { TaskModalProps } from "./tasks/TaskModal";
+import { TaskModal } from "./tasks/TaskModal";
 import { Button } from "./ui/Button";
 import { Title } from "./ui/Title";
 import { Tooltip } from "./ui/Tooltip";
-import type { CalendarEvent, CalendarViewMode } from "../types/calendar";
-import type { CalendarEventMovePayload, CalendarEventResizePayload, CalendarEventCreatePayload } from "../types/calendar";
-import type { Task } from "../types/task";
-import dayjs from "dayjs";
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { CreateTaskModal } from "./tasks/CreateTaskModal";
-import { TaskModal } from "./tasks/TaskModal";
 
 const MIN_EVENT_HEIGHT_PX = 24;
 
-function isFullDayEvent(event: CalendarEvent, dayStart: dayjs.Dayjs, dayEnd: dayjs.Dayjs): boolean {
+function isFullDayEvent(
+  event: CalendarEvent,
+  dayStart: dayjs.Dayjs,
+  dayEnd: dayjs.Dayjs,
+): boolean {
   const start = dayjs(event.start);
   const end = dayjs(event.end);
   return (
@@ -32,7 +43,8 @@ function getEventDayPosition(
   const end = dayjs(event.end);
   const visualStart = start.isBefore(dayStart) ? dayStart : start;
   const visualEnd = end.isAfter(dayEnd) ? dayEnd : end;
-  if (!visualStart.isBefore(visualEnd) && !visualStart.isSame(visualEnd)) return null;
+  if (!visualStart.isBefore(visualEnd) && !visualStart.isSame(visualEnd))
+    return null;
   const topPx = visualStart.diff(dayStart, "minute") * (hourRowHeight / 60);
   const heightPx = Math.max(
     MIN_EVENT_HEIGHT_PX,
@@ -48,7 +60,6 @@ export interface DayViewProps {
   unscheduledEvents: CalendarEvent[];
   setScheduledEvents: React.Dispatch<React.SetStateAction<CalendarEvent[]>>;
   setUnscheduledEvents: React.Dispatch<React.SetStateAction<CalendarEvent[]>>;
-  view: CalendarViewMode;
   onEventMove?: (payload: CalendarEventMovePayload) => Promise<void>;
   onEventResize?: (payload: CalendarEventResizePayload) => Promise<void>;
   onEventCreate?: (payload: CalendarEventCreatePayload) => Promise<void>;
@@ -61,6 +72,17 @@ export interface DayViewProps {
   }) => Promise<void>;
   /** Optional: map event → task to show TaskModal (e.g. mapEventToTask). */
   mapFromEvent?: (event: CalendarEvent) => Task;
+  /** Custom "add event" button; receives onClick. If not set, default "+" button is used. */
+  AddEventButton?: React.ComponentType<{ onClick: () => void }>;
+  /** Custom create-event modal. If not set, default CreateTaskModal is used. Must accept isOpen, onClose, onSubmit. */
+  CreateEventModal?: React.ComponentType<CreateTaskModalProps>;
+  /** Custom button to open event details (replaces default "View"). Receives event and onOpen. */
+  EventActionButton?: React.ComponentType<{
+    event: CalendarEvent;
+    onOpen: () => void;
+  }>;
+  /** Custom modal for viewing event details. If not set, default TaskModal is used (requires mapFromEvent). */
+  EventDetailModal?: React.ComponentType<TaskModalProps>;
   className?: string;
   style?: React.CSSProperties;
 }
@@ -72,7 +94,6 @@ export default function DayView({
   unscheduledEvents,
   setScheduledEvents,
   setUnscheduledEvents,
-  view,
   onEventMove,
   onEventResize,
   onEventCreate,
@@ -81,12 +102,18 @@ export default function DayView({
   readOnly = false,
   updateTask = async () => {},
   mapFromEvent,
+  AddEventButton,
+  CreateEventModal,
+  EventActionButton,
+  EventDetailModal,
   className,
   style,
 }: DayViewProps) {
   const [isTaskOpen, setIsTaskOpen] = useState(false);
   const [isCreateTaskOpen, setIsCreateTaskOpen] = useState(false);
-  const [selectedEvent, setSelectedEvent] = useState<CalendarEvent | null>(null);
+  const [selectedEvent, setSelectedEvent] = useState<CalendarEvent | null>(
+    null,
+  );
 
   const openTask = () => setIsTaskOpen(true);
   const closeTask = () => {
@@ -96,7 +123,7 @@ export default function DayView({
   const openCreateTask = async () => {
     if (onDateClick) {
       try {
-        await onDateClick(startDate, view);
+        await onDateClick(startDate, "day");
       } catch {
         return;
       }
@@ -156,6 +183,24 @@ export default function DayView({
     openTask();
   };
 
+  const renderEventActionButton = (event: CalendarEvent) =>
+    EventActionButton ? (
+      <EventActionButton event={event} onOpen={() => handleOpenEvent(event)} />
+    ) : (
+      <Button
+        type="button"
+        onMouseDown={(e) => e.stopPropagation()}
+        onClick={(e) => {
+          e.stopPropagation();
+          e.preventDefault();
+          handleOpenEvent(event);
+        }}
+        aria-label={`View ${event.title}`}
+      >
+        View
+      </Button>
+    );
+
   const handlePreviousDay = () => {
     setStartDate(startDate.subtract(1, "day"));
   };
@@ -188,7 +233,7 @@ export default function DayView({
               end: newEnd,
               oldStart,
               oldEnd,
-              view,
+              view: "day",
             });
           } catch {
             setScheduledEvents(prevScheduled);
@@ -197,11 +242,22 @@ export default function DayView({
         })();
       }
     },
-    [startDate, scheduledEvents, setScheduledEvents, setUnscheduledEvents, onEventMove, view],
+    [
+      startDate,
+      scheduledEvents,
+      unscheduledEvents,
+      setScheduledEvents,
+      setUnscheduledEvents,
+      onEventMove,
+    ],
   );
 
   const handleCreateSubmit = useCallback(
-    async (data: { name: string; startDate: dayjs.Dayjs; endDate: dayjs.Dayjs }) => {
+    async (data: {
+      name: string;
+      startDate: dayjs.Dayjs;
+      endDate: dayjs.Dayjs;
+    }) => {
       const id = `event-${Date.now()}-${Math.random().toString(36).slice(2)}`;
       const newEvent: CalendarEvent = {
         id,
@@ -231,9 +287,17 @@ export default function DayView({
   return (
     <div data-slot="day-view" className={className} style={style}>
       <div data-slot="day-view-nav">
-        <Button type="button" onClick={handlePreviousDay} aria-label="Previous day">←</Button>
+        <Button
+          type="button"
+          onClick={handlePreviousDay}
+          aria-label="Previous day"
+        >
+          ←
+        </Button>
         <Title level={4}>{dayTitle}</Title>
-        <Button type="button" onClick={handleNextDay} aria-label="Next day">→</Button>
+        <Button type="button" onClick={handleNextDay} aria-label="Next day">
+          →
+        </Button>
       </div>
 
       {fullDayEvents.length > 0 && (
@@ -249,18 +313,7 @@ export default function DayView({
                 data-color={event.color ?? undefined}
               >
                 <span>{event.title}</span>
-                <Button
-                  type="button"
-                  onMouseDown={(e) => e.stopPropagation()}
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    e.preventDefault();
-                    handleOpenEvent(event);
-                  }}
-                  aria-label={`View ${event.title}`}
-                >
-                  View
-                </Button>
+                {renderEventActionButton(event)}
               </div>
             ))}
           </div>
@@ -282,7 +335,13 @@ export default function DayView({
             data-hour={hour}
             style={{ gridRow: hour + 1, minHeight: HOUR_ROW_HEIGHT }}
           >
-            {hour === 0 ? "12 AM" : hour < 12 ? `${hour} AM` : hour === 12 ? "12 PM" : `${hour - 12} PM`}
+            {hour === 0
+              ? "12 AM"
+              : hour < 12
+                ? `${hour} AM`
+                : hour === 12
+                  ? "12 PM"
+                  : `${hour - 12} PM`}
           </div>
         ))}
         <div
@@ -312,10 +371,27 @@ export default function DayView({
             />
           )}
           {timedEvents.length === 0 ? (
-            <p data-slot="day-no-events" style={{ position: "absolute", top: "1rem", left: "1rem", right: "1rem", textAlign: "center", margin: 0 }}>No events scheduled</p>
+            <p
+              data-slot="day-no-events"
+              style={{
+                position: "absolute",
+                top: "1rem",
+                left: "1rem",
+                right: "1rem",
+                textAlign: "center",
+                margin: 0,
+              }}
+            >
+              No events scheduled
+            </p>
           ) : (
             timedEvents.map((event) => {
-              const pos = getEventDayPosition(event, dayStart, dayEnd, HOUR_ROW_HEIGHT);
+              const pos = getEventDayPosition(
+                event,
+                dayStart,
+                dayEnd,
+                HOUR_ROW_HEIGHT,
+              );
               if (!pos) return null;
               return (
                 <div
@@ -335,18 +411,7 @@ export default function DayView({
                   }}
                 >
                   <span>{event.title}</span>
-                  <Button
-                    type="button"
-                    onMouseDown={(e) => e.stopPropagation()}
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      e.preventDefault();
-                      handleOpenEvent(event);
-                    }}
-                    aria-label={`View ${event.title}`}
-                  >
-                    View
-                  </Button>
+                  {renderEventActionButton(event)}
                 </div>
               );
             })
@@ -356,16 +421,33 @@ export default function DayView({
 
       <div data-slot="unscheduled-list">
         <h3 data-slot="unscheduled-title">Unscheduled events</h3>
-        {!readOnly && (
-          <Tooltip title="Add new event">
-            <Button type="button" onClick={openCreateTask} aria-label="Add event">+</Button>
-          </Tooltip>
+        {!readOnly &&
+          (AddEventButton ? (
+            <AddEventButton onClick={openCreateTask} />
+          ) : (
+            <Tooltip title="Add new event">
+              <Button
+                type="button"
+                onClick={openCreateTask}
+                aria-label="Add event"
+              >
+                +
+              </Button>
+            </Tooltip>
+          ))}
+        {CreateEventModal ? (
+          <CreateEventModal
+            isOpen={isCreateTaskOpen}
+            onClose={closeCreateTask}
+            onSubmit={handleCreateSubmit}
+          />
+        ) : (
+          <CreateTaskModal
+            isOpen={isCreateTaskOpen}
+            onClose={closeCreateTask}
+            onSubmit={handleCreateSubmit}
+          />
         )}
-        <CreateTaskModal
-          isOpen={isCreateTaskOpen}
-          onClose={closeCreateTask}
-          onSubmit={handleCreateSubmit}
-        />
         <div data-slot="unscheduled-items">
           {unscheduledEvents.map((event) => (
             <div
@@ -384,18 +466,39 @@ export default function DayView({
           ))}
         </div>
         {unscheduledEvents.length > 0 && !readOnly && (
-          <p data-slot="unscheduled-hint">Drag an event onto the day above to schedule it, or double-click to view.</p>
+          <p data-slot="unscheduled-hint">
+            Drag an event onto the day above to schedule it, or double-click to
+            view.
+          </p>
         )}
       </div>
 
-      {selectedEvent && mapFromEvent && (
-        <TaskModal
-          task={mapFromEvent(selectedEvent)}
-          isOpen={isTaskOpen}
-          onClose={closeTask}
-          updateTask={updateTask}
-        />
-      )}
+      {selectedEvent &&
+        (EventDetailModal ? (
+          <EventDetailModal
+            task={
+              mapFromEvent
+                ? mapFromEvent(selectedEvent)
+                : {
+                    id: selectedEvent.id,
+                    name: selectedEvent.title,
+                    startDate: selectedEvent.start,
+                    endDate: selectedEvent.end,
+                    employees: [],
+                  }
+            }
+            isOpen={isTaskOpen}
+            onClose={closeTask}
+            updateTask={updateTask}
+          />
+        ) : mapFromEvent ? (
+          <TaskModal
+            task={mapFromEvent(selectedEvent)}
+            isOpen={isTaskOpen}
+            onClose={closeTask}
+            updateTask={updateTask}
+          />
+        ) : null)}
     </div>
   );
 }

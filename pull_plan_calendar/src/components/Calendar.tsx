@@ -61,6 +61,21 @@ export interface CalendarProps {
   readOnly?: boolean;
   /** Optional: map event → task to show TaskModal when using task-based flows (e.g. mapEventToTask). */
   mapFromEvent?: (event: CalendarEvent) => Task;
+  /** Custom "add event" button for day view; receives onClick. If not set, default "+" is used. */
+  AddEventButton?: React.ComponentType<{ onClick: () => void }>;
+  /** Custom create-event modal for day view. If not set, default CreateTaskModal is used. */
+  CreateEventModal?: React.ComponentType<
+    import("./tasks/CreateTaskModal").CreateTaskModalProps
+  >;
+  /** Custom button to open event details (day view). Receives event and onOpen. */
+  EventActionButton?: React.ComponentType<{
+    event: CalendarEvent;
+    onOpen: () => void;
+  }>;
+  /** Custom modal for viewing event details (day view). If not set, default TaskModal is used. */
+  EventDetailModal?: React.ComponentType<
+    import("./tasks/TaskModal").TaskModalProps
+  >;
   /** Root element class name. */
   className?: string;
   /** Root element inline style. */
@@ -104,6 +119,10 @@ export default function Calendar({
   onDateClick,
   readOnly = false,
   mapFromEvent,
+  AddEventButton,
+  CreateEventModal,
+  EventActionButton,
+  EventDetailModal,
   className,
   style,
 }: CalendarProps) {
@@ -190,9 +209,12 @@ export default function Calendar({
         onEventCreate={onEventCreate}
         onEventClick={onEventClick}
         onDateClick={onDateClick}
-        view="day"
         readOnly={readOnly}
         mapFromEvent={mapFromEvent}
+        AddEventButton={AddEventButton}
+        CreateEventModal={CreateEventModal}
+        EventActionButton={EventActionButton}
+        EventDetailModal={EventDetailModal}
       />
     ),
     week: (
@@ -209,9 +231,12 @@ export default function Calendar({
         onEventCreate={onEventCreate}
         onEventClick={onEventClick}
         onDateClick={onDateClick}
-        view="week"
         readOnly={readOnly}
         mapFromEvent={mapFromEvent}
+        AddEventButton={AddEventButton}
+        CreateEventModal={CreateEventModal}
+        EventActionButton={EventActionButton}
+        EventDetailModal={EventDetailModal}
       />
     ),
     month: (
@@ -222,9 +247,10 @@ export default function Calendar({
         setZoomLevel={setZoomLevel}
         onEventClick={onEventClick}
         onDateClick={onDateClick}
-        view="month"
         readOnly={readOnly}
         mapFromEvent={mapFromEvent}
+        AddEventButton={AddEventButton}
+        CreateEventModal={CreateEventModal}
       />
     ),
     year: (
@@ -235,9 +261,10 @@ export default function Calendar({
         setZoomLevel={setZoomLevel}
         onEventClick={onEventClick}
         onDateClick={onDateClick}
-        view="year"
         readOnly={readOnly}
         mapFromEvent={mapFromEvent}
+        AddEventButton={AddEventButton}
+        CreateEventModal={CreateEventModal}
       />
     ),
   };

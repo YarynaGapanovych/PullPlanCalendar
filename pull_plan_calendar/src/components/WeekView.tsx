@@ -24,7 +24,9 @@ import {
   getOverlapRowAssignments,
   pixelDeltaToDayDelta,
 } from "../utils/weekViewLayout";
+import type { CreateTaskModalProps } from "./tasks/CreateTaskModal";
 import { CreateTaskModal } from "./tasks/CreateTaskModal";
+import type { TaskModalProps } from "./tasks/TaskModal";
 import { TaskModal } from "./tasks/TaskModal";
 import { Button } from "./ui/Button";
 import { Title } from "./ui/Title";
@@ -40,7 +42,6 @@ export interface WeekViewProps {
   setScheduledEvents: React.Dispatch<React.SetStateAction<CalendarEvent[]>>;
   setUnscheduledEvents: React.Dispatch<React.SetStateAction<CalendarEvent[]>>;
   getWeekDaysWithDates: () => { dayIndex: number; date: string }[];
-  view: CalendarViewMode;
   onEventMove?: (payload: CalendarEventMovePayload) => Promise<void>;
   onEventResize?: (payload: CalendarEventResizePayload) => Promise<void>;
   onEventCreate?: (payload: CalendarEventCreatePayload) => Promise<void>;
@@ -53,6 +54,17 @@ export interface WeekViewProps {
   }) => Promise<void>;
   /** Optional: map event → task to show TaskModal (e.g. mapEventToTask). */
   mapFromEvent?: (event: CalendarEvent) => Task;
+  /** Custom "add event" button; receives onClick. If not set, default "+" button is used. */
+  AddEventButton?: React.ComponentType<{ onClick: () => void }>;
+  /** Custom create-event modal. If not set, default CreateTaskModal is used. */
+  CreateEventModal?: React.ComponentType<CreateTaskModalProps>;
+  /** Custom button to open event details (replaces default "View"). Receives event and onOpen. */
+  EventActionButton?: React.ComponentType<{
+    event: CalendarEvent;
+    onOpen: () => void;
+  }>;
+  /** Custom modal for viewing event details. If not set, default TaskModal is used (requires mapFromEvent). */
+  EventDetailModal?: React.ComponentType<TaskModalProps>;
   className?: string;
   style?: React.CSSProperties;
 }
@@ -69,6 +81,10 @@ interface WeekEventCardProps {
     handle: "left" | "right",
     startX: number,
   ) => void;
+  EventActionButton?: React.ComponentType<{
+    event: CalendarEvent;
+    onOpen: () => void;
+  }>;
 }
 
 function WeekEventCard({
@@ -79,6 +95,7 @@ function WeekEventCard({
   onOpen,
   dragDeltaX,
   onResizeStart,
+  EventActionButton,
 }: WeekEventCardProps) {
   const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
     id: event.id,
@@ -172,18 +189,22 @@ function WeekEventCard({
       >
         {event.title}
       </span>
-      <Button
-        type="button"
-        onMouseDown={(e) => e.stopPropagation()}
-        onClick={(e) => {
-          e.stopPropagation();
-          e.preventDefault();
-          onOpen();
-        }}
-        aria-label={`View ${event.title}`}
-      >
-        View
-      </Button>
+      {EventActionButton ? (
+        <EventActionButton event={event} onOpen={onOpen} />
+      ) : (
+        <Button
+          type="button"
+          onMouseDown={(e) => e.stopPropagation()}
+          onClick={(e) => {
+            e.stopPropagation();
+            e.preventDefault();
+            onOpen();
+          }}
+          aria-label={`View ${event.title}`}
+        >
+          View
+        </Button>
+      )}
     </div>
   );
 }
@@ -196,7 +217,6 @@ export default function WeekView({
   setUnscheduledEvents,
   getWeekDaysWithDates,
   setStartDate,
-  view,
   onEventMove,
   onEventResize,
   onEventCreate,
@@ -205,6 +225,10 @@ export default function WeekView({
   readOnly = false,
   updateTask = async () => {},
   mapFromEvent,
+  AddEventButton,
+  CreateEventModal,
+  EventActionButton,
+  EventDetailModal,
   className,
   style,
 }: WeekViewProps) {
@@ -254,7 +278,7 @@ export default function WeekView({
   const openCreateTask = async () => {
     if (onDateClick) {
       try {
-        await onDateClick(startDate, view);
+        await onDateClick(startDate, "week");
       } catch {
         return;
       }
@@ -399,7 +423,7 @@ export default function WeekView({
               end: newEnd,
               oldStart,
               oldEnd,
-              view,
+              view: "week",
             });
           } catch {
             setScheduledEvents(prevScheduled);
@@ -416,7 +440,6 @@ export default function WeekView({
       setScheduledEvents,
       setUnscheduledEvents,
       onEventMove,
-      view,
       handlePreviousWeek,
       handleNextWeek,
     ],
@@ -517,7 +540,7 @@ export default function WeekView({
               end: newEnd,
               oldStart,
               oldEnd,
-              view,
+              view: "week",
             });
           } catch {
             setScheduledEvents(prevScheduled);
@@ -531,14 +554,7 @@ export default function WeekView({
       window.removeEventListener("pointermove", onMove, { capture: true });
       window.removeEventListener("pointerup", onUp, { capture: true });
     };
-  }, [
-    resizing,
-    scheduledEvents,
-    startDate,
-    setScheduledEvents,
-    onEventResize,
-    view,
-  ]);
+  }, [resizing, scheduledEvents, startDate, setScheduledEvents, onEventResize]);
 
   const handleUnassignedEventDrop = useCallback(
     (event: CalendarEvent, dayIndex: number) => {
@@ -564,7 +580,7 @@ export default function WeekView({
               end: newEnd,
               oldStart,
               oldEnd,
-              view,
+              view: "week",
             });
           } catch {
             setScheduledEvents(prevScheduled);
@@ -580,7 +596,6 @@ export default function WeekView({
       setScheduledEvents,
       setUnscheduledEvents,
       onEventMove,
-      view,
     ],
   );
 
@@ -652,14 +667,7 @@ export default function WeekView({
       })),
     );
     return { items: withPlacement, rowIndices, numRows };
-  }, [
-    scheduledEvents,
-    startDate,
-    containerWidth,
-    resizePreview?.eventId,
-    resizePreview?.leftDeltaDays,
-    resizePreview?.rightDeltaDays,
-  ]);
+  }, [scheduledEvents, startDate, containerWidth, resizePreview]);
 
   const eventsOverlayStyle: React.CSSProperties = useMemo(
     () => ({
@@ -718,6 +726,7 @@ export default function WeekView({
                 onOpen={() => handleOpenEvent(event)}
                 dragDeltaX={dragDelta?.id === event.id ? dragDelta.x : null}
                 onResizeStart={onResizeStart}
+                EventActionButton={EventActionButton}
               />
             ))}
           </DndContext>
@@ -726,22 +735,33 @@ export default function WeekView({
 
       <div data-slot="unscheduled-list">
         <h3 data-slot="unscheduled-title">Unscheduled events</h3>
-        {!readOnly && (
-          <Tooltip title="Add new event">
-            <Button
-              type="button"
-              onClick={openCreateTask}
-              aria-label="Add event"
-            >
-              +
-            </Button>
-          </Tooltip>
+        {!readOnly &&
+          (AddEventButton ? (
+            <AddEventButton onClick={openCreateTask} />
+          ) : (
+            <Tooltip title="Add new event">
+              <Button
+                type="button"
+                onClick={openCreateTask}
+                aria-label="Add event"
+              >
+                +
+              </Button>
+            </Tooltip>
+          ))}
+        {CreateEventModal ? (
+          <CreateEventModal
+            isOpen={isCreateTaskOpen}
+            onClose={closeCreateTask}
+            onSubmit={handleCreateSubmit}
+          />
+        ) : (
+          <CreateTaskModal
+            isOpen={isCreateTaskOpen}
+            onClose={closeCreateTask}
+            onSubmit={handleCreateSubmit}
+          />
         )}
-        <CreateTaskModal
-          isOpen={isCreateTaskOpen}
-          onClose={closeCreateTask}
-          onSubmit={handleCreateSubmit}
-        />
         <div data-slot="unscheduled-items">
           {unscheduledEvents.map((event) => (
             <div
@@ -768,14 +788,32 @@ export default function WeekView({
           ))}
         </div>
       </div>
-      {selectedEvent && mapFromEvent && (
-        <TaskModal
-          task={mapFromEvent(selectedEvent)}
-          isOpen={isTaskOpen}
-          onClose={closeTask}
-          updateTask={updateTask}
-        />
-      )}
+      {selectedEvent &&
+        (EventDetailModal ? (
+          <EventDetailModal
+            task={
+              mapFromEvent
+                ? mapFromEvent(selectedEvent)
+                : {
+                    id: selectedEvent.id,
+                    name: selectedEvent.title,
+                    startDate: selectedEvent.start,
+                    endDate: selectedEvent.end,
+                    employees: [],
+                  }
+            }
+            isOpen={isTaskOpen}
+            onClose={closeTask}
+            updateTask={updateTask}
+          />
+        ) : mapFromEvent ? (
+          <TaskModal
+            task={mapFromEvent(selectedEvent)}
+            isOpen={isTaskOpen}
+            onClose={closeTask}
+            updateTask={updateTask}
+          />
+        ) : null)}
     </div>
   );
 }

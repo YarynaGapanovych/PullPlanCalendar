@@ -1,14 +1,15 @@
 "use client";
 
-import "../utils/calendarHelpers";
-import { Button } from "./ui/Button";
-import { Title } from "./ui/Title";
 import dayjs, { type Dayjs } from "dayjs";
 import { useMemo, useState } from "react";
 import type { CalendarEvent, CalendarViewMode } from "../types/calendar";
 import type { Task } from "../types/task";
+import "../utils/calendarHelpers";
 import { getEventsForYear } from "../utils/calendarHelpers";
+import type { CreateTaskModalProps } from "./tasks/CreateTaskModal";
 import { CreateTaskModal } from "./tasks/CreateTaskModal";
+import { Button } from "./ui/Button";
+import { Title } from "./ui/Title";
 import { Week } from "./Week";
 
 export interface YearViewProps {
@@ -16,7 +17,6 @@ export interface YearViewProps {
   setEvents: React.Dispatch<React.SetStateAction<CalendarEvent[]>>;
   setStartDate: (date: Dayjs) => void;
   setZoomLevel: (zoom: "year" | "week") => void;
-  view: CalendarViewMode;
   onEventClick?: (event: CalendarEvent) => Promise<void>;
   onDateClick?: (date: Dayjs, view: CalendarViewMode) => Promise<void>;
   readOnly?: boolean;
@@ -26,6 +26,10 @@ export interface YearViewProps {
   }) => Promise<unknown>;
   /** Optional: map event → task to show TaskModal (e.g. mapEventToTask). */
   mapFromEvent?: (event: CalendarEvent) => Task;
+  /** Custom "add event" button; receives onClick. If not set, no add button is shown in year view. */
+  AddEventButton?: React.ComponentType<{ onClick: () => void }>;
+  /** Custom create-event modal. If not set, default CreateTaskModal is used. */
+  CreateEventModal?: React.ComponentType<CreateTaskModalProps>;
   className?: string;
   style?: React.CSSProperties;
 }
@@ -35,12 +39,13 @@ export default function YearView({
   setEvents,
   setStartDate,
   setZoomLevel,
-  view,
   onEventClick,
   onDateClick,
   readOnly = false,
   updateTask = async () => {},
   mapFromEvent,
+  AddEventButton,
+  CreateEventModal,
   className,
   style,
 }: YearViewProps) {
@@ -90,22 +95,39 @@ export default function YearView({
   return (
     <div data-slot="year-view" className={className} style={style}>
       <div data-slot="year-view-nav">
-        <Button type="button" onClick={handlePreviousYear} aria-label="Previous year">←</Button>
+        <Button
+          type="button"
+          onClick={handlePreviousYear}
+          aria-label="Previous year"
+        >
+          ←
+        </Button>
         <Title level={4}>{currentYear}</Title>
-        <Button type="button" onClick={handleNextYear} aria-label="Next year">→</Button>
+        <Button type="button" onClick={handleNextYear} aria-label="Next year">
+          →
+        </Button>
+        {!readOnly && AddEventButton && (
+          <AddEventButton onClick={() => openModalWithDate(dayjs())} />
+        )}
       </div>
       <div data-slot="year-view-months">
         {[...Array(12)].map((_, monthIndex) => (
           <div key={monthIndex} data-slot="year-month">
-            <Title level={4}>{dayjs(`${currentYear}-${monthIndex + 1}-01`).format("MMMM")}</Title>
+            <Title level={4}>
+              {dayjs(`${currentYear}-${monthIndex + 1}-01`).format("MMMM")}
+            </Title>
             <div data-slot="year-month-weekdays">
               {["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map((day) => (
-                <div key={day} data-slot="year-weekday">{day}</div>
+                <div key={day} data-slot="year-weekday">
+                  {day}
+                </div>
               ))}
             </div>
             <div data-slot="year-month-weeks">
               {calendarData
-                .filter((week) => week.some((day) => day.month() === monthIndex))
+                .filter((week) =>
+                  week.some((day) => day.month() === monthIndex),
+                )
                 .map((week, weekIndex) => (
                   <div key={weekIndex} data-slot="year-week">
                     <button
@@ -125,7 +147,7 @@ export default function YearView({
                       events={getEventsForWeekInYear(week)}
                       onSelectDate={openModalWithDate}
                       currentMonth={monthIndex}
-                      view={view}
+                      view="year"
                       readOnly={readOnly}
                       onEventClick={onEventClick}
                       onDateClick={onDateClick}
@@ -138,7 +160,17 @@ export default function YearView({
           </div>
         ))}
       </div>
-      <CreateTaskModal isOpen={isModalOpen} onClose={() => setIsModalOpen(false)} />
+      {CreateEventModal ? (
+        <CreateEventModal
+          isOpen={isModalOpen}
+          onClose={() => setIsModalOpen(false)}
+        />
+      ) : (
+        <CreateTaskModal
+          isOpen={isModalOpen}
+          onClose={() => setIsModalOpen(false)}
+        />
+      )}
     </div>
   );
 }

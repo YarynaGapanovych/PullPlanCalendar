@@ -9,6 +9,7 @@ import type { CalendarEvent, CalendarViewMode } from "../types/calendar";
 import type { Task } from "../types/task";
 import { getEventsForWeek } from "../utils/calendarHelpers";
 import { CreateTaskModal } from "./tasks/CreateTaskModal";
+import type { CreateTaskModalProps } from "./tasks/CreateTaskModal";
 import { Week } from "./Week";
 
 export interface MonthViewProps {
@@ -16,7 +17,6 @@ export interface MonthViewProps {
   setEvents: React.Dispatch<React.SetStateAction<CalendarEvent[]>>;
   setStartDate: (date: Dayjs) => void;
   setZoomLevel: (zoom: "year" | "week") => void;
-  view: CalendarViewMode;
   onEventClick?: (event: CalendarEvent) => Promise<void>;
   onDateClick?: (date: Dayjs, view: CalendarViewMode) => Promise<void>;
   readOnly?: boolean;
@@ -26,6 +26,10 @@ export interface MonthViewProps {
   }) => Promise<unknown>;
   /** Optional: map event → task to show TaskModal (e.g. mapEventToTask). */
   mapFromEvent?: (event: CalendarEvent) => Task;
+  /** Custom "add event" button; receives onClick. If not set, no add button is shown in month view. */
+  AddEventButton?: React.ComponentType<{ onClick: () => void }>;
+  /** Custom create-event modal. If not set, default CreateTaskModal is used. */
+  CreateEventModal?: React.ComponentType<CreateTaskModalProps>;
   className?: string;
   style?: React.CSSProperties;
 }
@@ -35,12 +39,13 @@ export default function MonthView({
   setEvents,
   setStartDate,
   setZoomLevel,
-  view,
   onEventClick,
   onDateClick,
   readOnly = false,
   updateTask = async () => {},
   mapFromEvent,
+  AddEventButton,
+  CreateEventModal,
   className,
   style,
 }: MonthViewProps) {
@@ -92,6 +97,9 @@ export default function MonthView({
         <Button type="button" onClick={handlePreviousMonth} aria-label="Previous month">←</Button>
         <Title level={4}>{dayjs(`${dayjs().year()}-${currentMonth + 1}-01`).format("MMMM")}</Title>
         <Button type="button" onClick={handleNextMonth} aria-label="Next month">→</Button>
+        {!readOnly && AddEventButton && (
+          <AddEventButton onClick={() => openModalWithDate(dayjs())} />
+        )}
       </div>
       <div data-slot="month-view-body">
         <div data-slot="month-view-weekdays">
@@ -122,7 +130,7 @@ export default function MonthView({
                   onSelectDate={openModalWithDate}
                   currentMonth={currentMonth}
                   isMonthView
-                  view={view}
+                  view="month"
                   readOnly={readOnly}
                   onEventClick={onEventClick}
                   onDateClick={onDateClick}
@@ -133,7 +141,17 @@ export default function MonthView({
             ))}
         </div>
       </div>
-      <CreateTaskModal isOpen={isModalOpen} onClose={() => setIsModalOpen(false)} />
+      {CreateEventModal ? (
+        <CreateEventModal
+          isOpen={isModalOpen}
+          onClose={() => setIsModalOpen(false)}
+        />
+      ) : (
+        <CreateTaskModal
+          isOpen={isModalOpen}
+          onClose={() => setIsModalOpen(false)}
+        />
+      )}
     </div>
   );
 }
