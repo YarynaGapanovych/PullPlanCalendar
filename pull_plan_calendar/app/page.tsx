@@ -20,7 +20,28 @@ export default function Home() {
           defaultUnscheduledEvents={getMockUnscheduledTasks().map(
             mapTaskToEvent,
           )}
+          onEventMove={async () => {}}
+          onEventResize={async () => {}}
+          onEventCreate={async () => {}}
+          onEventClick={async () => {}}
+          onDateClick={async () => {}}
+          readOnly={false}
           mapFromEvent={mapEventToTask}
+          previousDayButtonContent="←"
+          nextDayButtonContent="→"
+          previousWeekButtonContent="←"
+          nextWeekButtonContent="→"
+          previousMonthButtonContent="←"
+          nextMonthButtonContent="→"
+          previousYearButtonContent="←"
+          nextYearButtonContent="→"
+          viewSwitcherClassName=""
+          viewSwitcherButtonClassName=""
+          // Optional custom components (uncomment and pass your components):
+          // AddEventButton={CustomAddEventButton}
+          // CreateEventModal={CustomCreateEventModal}
+          // EventActionButton={CustomEventActionButton}
+          // EventDetailModal={CustomEventDetailModal}
         />
       </main>
     </div>

@@ -218,6 +218,48 @@
   overflow: hidden;
 }
 
+[data-slot="day-multiday"] {
+  margin-top: 0.75rem;
+  padding: 0.75rem 1rem;
+  border-radius: 0.5rem;
+  background: #f9fafb;
+  border: 1px solid #e5e7eb;
+}
+
+[data-slot="day-multiday-title"] {
+  font-size: 0.875rem;
+  font-weight: 600;
+  margin: 0 0 0.5rem;
+  color: #374151;
+}
+
+[data-slot="day-multiday-items"] {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+[data-slot="day-multiday-items"] [data-slot="event"] {
+  display: inline-flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.25rem;
+  padding: 0.25rem 0.75rem;
+  border-radius: 9999px;
+  color: white;
+  background: var(--event-color, #b1724b);
+  font-size: 0.8125rem;
+}
+
+[data-slot="day-multiday-items"] [data-slot="event"] button {
+  padding: 0.25rem;
+  background: transparent;
+  border: none;
+  color: inherit;
+  cursor: pointer;
+  font-size: 0.875rem;
+}
+
 [data-slot="day-hour"] {
   border-top: 1px solid #f3f4f6;
   padding: 0.125rem 0.5rem 0 0;
@@ -227,11 +269,12 @@
 }
 
 [data-slot="day-events"] {
-  padding: 1rem;
-  border-left: 1px solid #f3f4f6;
-  display: flex;
-  flex-direction: column;
-  gap: 0.5rem;
+  padding: 0;
+  display: block;
+}
+
+[data-slot="day-now-line"] {
+  transition: top 60s linear;
 }
 
 [data-slot="day-no-events"] {

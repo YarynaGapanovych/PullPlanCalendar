@@ -11,7 +11,12 @@
     "url": "https://github.com/<you>/pull-plan-calendar/issues"
   },
   "homepage": "https://github.com/<you>/pull-plan-calendar#readme",
-  "keywords": ["react", "calendar", "scheduler", "tasks"],
+  "keywords": [
+    "react",
+    "calendar",
+    "scheduler",
+    "tasks"
+  ],
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
@@ -23,7 +28,9 @@
   "main": "./dist/index.js",
   "module": "./dist/index.mjs",
   "types": "./dist/index.d.ts",
-  "files": ["dist"],
+  "files": [
+    "dist"
+  ],
   "sideEffects": false,
   "scripts": {
     "dev": "next dev",

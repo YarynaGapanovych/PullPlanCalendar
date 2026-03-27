@@ -36,7 +36,8 @@ var SegmentedControl = ({
   value,
   onChange,
   options,
-  className
+  className,
+  buttonClassName
 }) => {
   return /* @__PURE__ */ jsx("div", { "data-slot": "segmented-control", role: "tablist", className, children: options.map((option) => /* @__PURE__ */ jsx(
     "button",
@@ -46,6 +47,7 @@ var SegmentedControl = ({
       "aria-selected": value === option.value,
       "data-slot": "segmented-control-option",
       "data-value": option.value,
+      className: [buttonClassName, option.className].filter(Boolean).join(" "),
       onClick: () => onChange(option.value),
       children: option.label
     },
@@ -55,11 +57,251 @@ var SegmentedControl = ({
 
 // src/components/Calendar.tsx
 import { DndContext as DndContext2 } from "@dnd-kit/core";
-import dayjs10 from "dayjs";
-import { useState as useState7 } from "react";
+import dayjs12 from "dayjs";
+import { useState as useState8 } from "react";
+
+// src/hooks/useCalendarDragEnd.ts
+import { useCallback } from "react";
+import dayjs from "dayjs";
+function useCalendarDragEnd(startDate, scheduledEvents, unscheduledEvents, setScheduledEvents, setUnscheduledEvents, onEventMove, view) {
+  return useCallback(
+    async (event) => {
+      var _a;
+      const { active, over } = event;
+      if (!over) return;
+      const draggedEvent = scheduledEvents.find((ev) => ev.id === active.id);
+      if (!draggedEvent) return;
+      const dropDateIndex = (_a = over.data.current) == null ? void 0 : _a.index;
+      if (dropDateIndex === void 0) return;
+      const oldStart = dayjs(draggedEvent.start);
+      const oldEnd = dayjs(draggedEvent.end);
+      const newStart = startDate.clone().add(dropDateIndex, "days");
+      const newEnd = newStart.clone().add(1, "days");
+      const prevScheduled = [...scheduledEvents];
+      const prevUnscheduled = [...unscheduledEvents];
+      setScheduledEvents((prev) => [
+        ...prev.filter((ev) => ev.id !== draggedEvent.id),
+        __spreadProps(__spreadValues({}, draggedEvent), {
+          start: dayjs(newStart.format("YYYY-MM-DD")),
+          end: dayjs(newEnd.format("YYYY-MM-DD"))
+        })
+      ]);
+      setUnscheduledEvents(
+        (prev) => prev.filter((ev) => ev.id !== draggedEvent.id)
+      );
+      try {
+        if (onEventMove) {
+          await onEventMove({
+            id: draggedEvent.id,
+            start: newStart,
+            end: newEnd,
+            oldStart,
+            oldEnd,
+            view
+          });
+        }
+      } catch (e) {
+        setScheduledEvents(prevScheduled);
+        setUnscheduledEvents(prevUnscheduled);
+      }
+    },
+    [
+      startDate,
+      scheduledEvents,
+      unscheduledEvents,
+      setScheduledEvents,
+      setUnscheduledEvents,
+      onEventMove,
+      view
+    ]
+  );
+}
+
+// src/hooks/useCalendarViews.ts
+import { useState } from "react";
+var ALL_VIEWS = ["day", "week", "month", "year"];
+function useCalendarViews(views) {
+  var _a;
+  const orderedViews = ALL_VIEWS.filter((v) => views.includes(v));
+  const [zoomLevel, setZoomLevel] = useState(
+    () => orderedViews.length > 0 ? orderedViews[0] : "week"
+  );
+  const effectiveZoom = orderedViews.includes(zoomLevel) ? zoomLevel : (_a = orderedViews[0]) != null ? _a : "week";
+  return { orderedViews, setZoomLevel, effectiveZoom };
+}
+
+// src/components/DayView.tsx
+import dayjs5 from "dayjs";
+import { useCallback as useCallback3, useEffect, useMemo, useState as useState3 } from "react";
+
+// src/hooks/useCreateEventSubmit.ts
+import dayjs2 from "dayjs";
+import { useCallback as useCallback2 } from "react";
+function useCreateEventSubmit(scheduledEvents, setScheduledEvents, onEventCreate, onClose) {
+  return useCallback2(
+    async (data) => {
+      const id = `event-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+      const newEvent = {
+        id,
+        title: data.name,
+        start: data.startDate,
+        end: data.endDate
+      };
+      const prevScheduled = [...scheduledEvents];
+      setScheduledEvents((prev) => [...prev, newEvent]);
+      onClose();
+      if (onEventCreate) {
+        try {
+          await onEventCreate({
+            id: newEvent.id,
+            title: newEvent.title,
+            start: dayjs2(newEvent.start),
+            end: dayjs2(newEvent.end)
+          });
+        } catch (e) {
+          setScheduledEvents(prevScheduled);
+        }
+      }
+    },
+    [scheduledEvents, setScheduledEvents, onEventCreate, onClose]
+  );
+}
+
+// src/components/tasks/CreateTaskModal.tsx
+import dayjs3 from "dayjs";
+import { useState as useState2 } from "react";
+import { jsx as jsx2, jsxs } from "react/jsx-runtime";
+function CreateTaskModal({
+  isOpen,
+  onClose,
+  areaId,
+  onSubmit,
+  className
+}) {
+  const [taskName, setTaskName] = useState2("");
+  const [startDate, setStartDate] = useState2(dayjs3());
+  const [endDate, setEndDate] = useState2(dayjs3().add(1, "day"));
+  const [isSubmitting, setIsSubmitting] = useState2(false);
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    setIsSubmitting(true);
+    try {
+      if (onSubmit) {
+        await onSubmit({ name: taskName, startDate, endDate });
+      } else {
+        await new Promise((resolve) => setTimeout(resolve, 500));
+      }
+      setTaskName("");
+      setStartDate(dayjs3());
+      setEndDate(dayjs3().add(1, "day"));
+      onClose();
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+  const handleCancel = () => {
+    setTaskName("");
+    setStartDate(dayjs3());
+    setEndDate(dayjs3().add(1, "day"));
+    onClose();
+  };
+  if (!isOpen) return null;
+  return /* @__PURE__ */ jsxs("div", { "data-slot": "create-task-modal", role: "dialog", "aria-modal": "true", "aria-labelledby": "create-task-title", className, children: [
+    /* @__PURE__ */ jsx2("div", { "data-slot": "create-task-modal-backdrop", onClick: handleCancel, "aria-hidden": true }),
+    /* @__PURE__ */ jsxs("div", { "data-slot": "create-task-modal-content", children: [
+      /* @__PURE__ */ jsxs("div", { "data-slot": "create-task-modal-header", children: [
+        /* @__PURE__ */ jsx2("h2", { id: "create-task-title", "data-slot": "create-task-modal-title", children: "Create New Task" }),
+        /* @__PURE__ */ jsx2("button", { type: "button", onClick: handleCancel, "aria-label": "Close", children: "\xD7" })
+      ] }),
+      /* @__PURE__ */ jsxs("form", { onSubmit: handleSubmit, "data-slot": "create-task-form", children: [
+        /* @__PURE__ */ jsxs("div", { "data-slot": "create-task-fields", children: [
+          /* @__PURE__ */ jsx2("label", { htmlFor: "taskName", children: "Task Name" }),
+          /* @__PURE__ */ jsx2(
+            "input",
+            {
+              id: "taskName",
+              type: "text",
+              value: taskName,
+              onChange: (e) => setTaskName(e.target.value),
+              required: true,
+              placeholder: "Enter task name",
+              "data-slot": "create-task-name"
+            }
+          ),
+          /* @__PURE__ */ jsx2("label", { htmlFor: "startDate", children: "Start Date" }),
+          /* @__PURE__ */ jsx2(
+            "input",
+            {
+              id: "startDate",
+              type: "date",
+              value: startDate.format("YYYY-MM-DD"),
+              onChange: (e) => setStartDate(dayjs3(e.target.value)),
+              required: true,
+              "data-slot": "create-task-start"
+            }
+          ),
+          /* @__PURE__ */ jsx2("label", { htmlFor: "endDate", children: "End Date" }),
+          /* @__PURE__ */ jsx2(
+            "input",
+            {
+              id: "endDate",
+              type: "date",
+              value: endDate.format("YYYY-MM-DD"),
+              onChange: (e) => setEndDate(dayjs3(e.target.value)),
+              required: true,
+              min: startDate.format("YYYY-MM-DD"),
+              "data-slot": "create-task-end"
+            }
+          ),
+          areaId && /* @__PURE__ */ jsxs("div", { "data-slot": "create-task-area", children: [
+            "Area ID: ",
+            areaId
+          ] })
+        ] }),
+        /* @__PURE__ */ jsxs("div", { "data-slot": "create-task-actions", children: [
+          /* @__PURE__ */ jsx2("button", { type: "button", onClick: handleCancel, children: "Cancel" }),
+          /* @__PURE__ */ jsx2("button", { type: "submit", disabled: isSubmitting || !taskName, children: isSubmitting ? "Creating..." : "Create Task" })
+        ] })
+      ] })
+    ] })
+  ] });
+}
+
+// src/components/tasks/TaskModal.tsx
+import dayjs4 from "dayjs";
+import { jsx as jsx3, jsxs as jsxs2 } from "react/jsx-runtime";
+function TaskModal({
+  task,
+  isOpen,
+  onClose,
+  className
+}) {
+  if (!isOpen) return null;
+  return /* @__PURE__ */ jsxs2("div", { "data-slot": "task-modal", role: "dialog", "aria-modal": "true", "aria-labelledby": "task-modal-title", className, children: [
+    /* @__PURE__ */ jsx3("div", { "data-slot": "task-modal-backdrop", onClick: onClose, "aria-hidden": true }),
+    /* @__PURE__ */ jsxs2("div", { "data-slot": "task-modal-content", children: [
+      /* @__PURE__ */ jsxs2("div", { "data-slot": "task-modal-header", children: [
+        /* @__PURE__ */ jsx3("h2", { id: "task-modal-title", "data-slot": "task-modal-title", children: "Task Details" }),
+        /* @__PURE__ */ jsx3("button", { type: "button", onClick: onClose, "aria-label": "Close", children: "\xD7" })
+      ] }),
+      /* @__PURE__ */ jsxs2("div", { "data-slot": "task-modal-body", children: [
+        /* @__PURE__ */ jsx3("p", { "data-slot": "task-name", children: task.name }),
+        /* @__PURE__ */ jsxs2("p", { "data-slot": "task-start", children: [
+          "Start: ",
+          dayjs4(task.startDate).format("MMM D, YYYY")
+        ] }),
+        /* @__PURE__ */ jsxs2("p", { "data-slot": "task-end", children: [
+          "End: ",
+          dayjs4(task.endDate).format("MMM D, YYYY")
+        ] })
+      ] }),
+      /* @__PURE__ */ jsx3("div", { "data-slot": "task-modal-actions", children: /* @__PURE__ */ jsx3("button", { type: "button", onClick: onClose, children: "Close" }) })
+    ] })
+  ] });
+}
 
 // src/components/ui/Button.tsx
-import { jsx as jsx2 } from "react/jsx-runtime";
+import { jsx as jsx4 } from "react/jsx-runtime";
 var Button = (_a) => {
   var _b = _a, {
     type = "button",
@@ -71,7 +313,7 @@ var Button = (_a) => {
     "className"
   ]);
   const htmlType = type === "text" || type === "link" || type === "primary" ? "button" : type;
-  return /* @__PURE__ */ jsx2(
+  return /* @__PURE__ */ jsx4(
     "button",
     __spreadProps(__spreadValues({
       type: htmlType,
@@ -84,159 +326,68 @@ var Button = (_a) => {
   );
 };
 
+// src/components/EventActionButtonSlot.tsx
+import { jsx as jsx5 } from "react/jsx-runtime";
+function EventActionButtonSlot({
+  event,
+  onOpen,
+  EventActionButton
+}) {
+  if (EventActionButton) {
+    return /* @__PURE__ */ jsx5(EventActionButton, { event, onOpen });
+  }
+  return /* @__PURE__ */ jsx5(
+    Button,
+    {
+      type: "button",
+      onMouseDown: (e) => e.stopPropagation(),
+      onClick: (e) => {
+        e.stopPropagation();
+        e.preventDefault();
+        onOpen();
+      },
+      "aria-label": `View ${event.title}`,
+      children: "View"
+    }
+  );
+}
+
 // src/components/ui/Title.tsx
-import { jsx as jsx3 } from "react/jsx-runtime";
+import { jsx as jsx6 } from "react/jsx-runtime";
 var TAG = { 1: "h1", 2: "h2", 3: "h3", 4: "h4", 5: "h5" };
 var Title = ({ level = 4, children, className }) => {
   const Comp = TAG[level];
-  return /* @__PURE__ */ jsx3(Comp, { "data-slot": "title", "data-level": level, className, children });
+  return /* @__PURE__ */ jsx6(Comp, { "data-slot": "title", "data-level": level, className, children });
 };
 
 // src/components/ui/Tooltip.tsx
-import { jsx as jsx4 } from "react/jsx-runtime";
+import { jsx as jsx7 } from "react/jsx-runtime";
 var Tooltip = ({ title, children, className }) => {
-  return /* @__PURE__ */ jsx4("div", { "data-slot": "tooltip", className, title, children });
+  return /* @__PURE__ */ jsx7("div", { "data-slot": "tooltip", className, title, children });
 };
 
 // src/components/DayView.tsx
-import dayjs3 from "dayjs";
-import { useCallback, useMemo, useState as useState2 } from "react";
-
-// src/components/tasks/CreateTaskModal.tsx
-import dayjs from "dayjs";
-import { useState } from "react";
-import { jsx as jsx5, jsxs } from "react/jsx-runtime";
-function CreateTaskModal({
-  isOpen,
-  onClose,
-  areaId,
-  onSubmit,
-  className
-}) {
-  const [taskName, setTaskName] = useState("");
-  const [startDate, setStartDate] = useState(dayjs());
-  const [endDate, setEndDate] = useState(dayjs().add(1, "day"));
-  const [isSubmitting, setIsSubmitting] = useState(false);
-  const handleSubmit = async (e) => {
-    e.preventDefault();
-    setIsSubmitting(true);
-    try {
-      if (onSubmit) {
-        await onSubmit({ name: taskName, startDate, endDate });
-      } else {
-        await new Promise((resolve) => setTimeout(resolve, 500));
-      }
-      setTaskName("");
-      setStartDate(dayjs());
-      setEndDate(dayjs().add(1, "day"));
-      onClose();
-    } finally {
-      setIsSubmitting(false);
-    }
-  };
-  const handleCancel = () => {
-    setTaskName("");
-    setStartDate(dayjs());
-    setEndDate(dayjs().add(1, "day"));
-    onClose();
-  };
-  if (!isOpen) return null;
-  return /* @__PURE__ */ jsxs("div", { "data-slot": "create-task-modal", role: "dialog", "aria-modal": "true", "aria-labelledby": "create-task-title", className, children: [
-    /* @__PURE__ */ jsx5("div", { "data-slot": "create-task-modal-backdrop", onClick: handleCancel, "aria-hidden": true }),
-    /* @__PURE__ */ jsxs("div", { "data-slot": "create-task-modal-content", children: [
-      /* @__PURE__ */ jsxs("div", { "data-slot": "create-task-modal-header", children: [
-        /* @__PURE__ */ jsx5("h2", { id: "create-task-title", "data-slot": "create-task-modal-title", children: "Create New Task" }),
-        /* @__PURE__ */ jsx5("button", { type: "button", onClick: handleCancel, "aria-label": "Close", children: "\xD7" })
-      ] }),
-      /* @__PURE__ */ jsxs("form", { onSubmit: handleSubmit, "data-slot": "create-task-form", children: [
-        /* @__PURE__ */ jsxs("div", { "data-slot": "create-task-fields", children: [
-          /* @__PURE__ */ jsx5("label", { htmlFor: "taskName", children: "Task Name" }),
-          /* @__PURE__ */ jsx5(
-            "input",
-            {
-              id: "taskName",
-              type: "text",
-              value: taskName,
-              onChange: (e) => setTaskName(e.target.value),
-              required: true,
-              placeholder: "Enter task name",
-              "data-slot": "create-task-name"
-            }
-          ),
-          /* @__PURE__ */ jsx5("label", { htmlFor: "startDate", children: "Start Date" }),
-          /* @__PURE__ */ jsx5(
-            "input",
-            {
-              id: "startDate",
-              type: "date",
-              value: startDate.format("YYYY-MM-DD"),
-              onChange: (e) => setStartDate(dayjs(e.target.value)),
-              required: true,
-              "data-slot": "create-task-start"
-            }
-          ),
-          /* @__PURE__ */ jsx5("label", { htmlFor: "endDate", children: "End Date" }),
-          /* @__PURE__ */ jsx5(
-            "input",
-            {
-              id: "endDate",
-              type: "date",
-              value: endDate.format("YYYY-MM-DD"),
-              onChange: (e) => setEndDate(dayjs(e.target.value)),
-              required: true,
-              min: startDate.format("YYYY-MM-DD"),
-              "data-slot": "create-task-end"
-            }
-          ),
-          areaId && /* @__PURE__ */ jsxs("div", { "data-slot": "create-task-area", children: [
-            "Area ID: ",
-            areaId
-          ] })
-        ] }),
-        /* @__PURE__ */ jsxs("div", { "data-slot": "create-task-actions", children: [
-          /* @__PURE__ */ jsx5("button", { type: "button", onClick: handleCancel, children: "Cancel" }),
-          /* @__PURE__ */ jsx5("button", { type: "submit", disabled: isSubmitting || !taskName, children: isSubmitting ? "Creating..." : "Create Task" })
-        ] })
-      ] })
-    ] })
-  ] });
+import { jsx as jsx8, jsxs as jsxs3 } from "react/jsx-runtime";
+var MIN_EVENT_HEIGHT_PX = 24;
+function isFullDayEvent(event, dayStart, dayEnd) {
+  const start = dayjs5(event.start);
+  const end = dayjs5(event.end);
+  return (start.isBefore(dayStart) || start.isSame(dayStart)) && (end.isAfter(dayEnd) || end.isSame(dayEnd));
 }
-
-// src/components/tasks/TaskModal.tsx
-import dayjs2 from "dayjs";
-import { jsx as jsx6, jsxs as jsxs2 } from "react/jsx-runtime";
-function TaskModal({
-  task,
-  isOpen,
-  onClose,
-  className
-}) {
-  if (!isOpen) return null;
-  return /* @__PURE__ */ jsxs2("div", { "data-slot": "task-modal", role: "dialog", "aria-modal": "true", "aria-labelledby": "task-modal-title", className, children: [
-    /* @__PURE__ */ jsx6("div", { "data-slot": "task-modal-backdrop", onClick: onClose, "aria-hidden": true }),
-    /* @__PURE__ */ jsxs2("div", { "data-slot": "task-modal-content", children: [
-      /* @__PURE__ */ jsxs2("div", { "data-slot": "task-modal-header", children: [
-        /* @__PURE__ */ jsx6("h2", { id: "task-modal-title", "data-slot": "task-modal-title", children: "Task Details" }),
-        /* @__PURE__ */ jsx6("button", { type: "button", onClick: onClose, "aria-label": "Close", children: "\xD7" })
-      ] }),
-      /* @__PURE__ */ jsxs2("div", { "data-slot": "task-modal-body", children: [
-        /* @__PURE__ */ jsx6("p", { "data-slot": "task-name", children: task.name }),
-        /* @__PURE__ */ jsxs2("p", { "data-slot": "task-start", children: [
-          "Start: ",
-          dayjs2(task.startDate).format("MMM D, YYYY")
-        ] }),
-        /* @__PURE__ */ jsxs2("p", { "data-slot": "task-end", children: [
-          "End: ",
-          dayjs2(task.endDate).format("MMM D, YYYY")
-        ] })
-      ] }),
-      /* @__PURE__ */ jsx6("div", { "data-slot": "task-modal-actions", children: /* @__PURE__ */ jsx6("button", { type: "button", onClick: onClose, children: "Close" }) })
-    ] })
-  ] });
+function getEventDayPosition(event, dayStart, dayEnd, hourRowHeight) {
+  const start = dayjs5(event.start);
+  const end = dayjs5(event.end);
+  const visualStart = start.isBefore(dayStart) ? dayStart : start;
+  const visualEnd = end.isAfter(dayEnd) ? dayEnd : end;
+  if (!visualStart.isBefore(visualEnd) && !visualStart.isSame(visualEnd))
+    return null;
+  const topPx = visualStart.diff(dayStart, "minute") * (hourRowHeight / 60);
+  const heightPx = Math.max(
+    MIN_EVENT_HEIGHT_PX,
+    visualEnd.diff(visualStart, "minute") * (hourRowHeight / 60)
+  );
+  return { topPx, heightPx };
 }
-
-// src/components/DayView.tsx
-import { jsx as jsx7, jsxs as jsxs3 } from "react/jsx-runtime";
 function DayView({
   startDate,
   setStartDate,
@@ -244,7 +395,6 @@ function DayView({
   unscheduledEvents,
   setScheduledEvents,
   setUnscheduledEvents,
-  view,
   onEventMove,
   onEventResize,
   onEventCreate,
@@ -254,12 +404,20 @@ function DayView({
   updateTask = async () => {
   },
   mapFromEvent,
+  AddEventButton,
+  CreateEventModal,
+  EventActionButton,
+  EventDetailModal,
+  previousDayButtonContent = "\u2190",
+  nextDayButtonContent = "\u2192",
   className,
   style
 }) {
-  const [isTaskOpen, setIsTaskOpen] = useState2(false);
-  const [isCreateTaskOpen, setIsCreateTaskOpen] = useState2(false);
-  const [selectedEvent, setSelectedEvent] = useState2(null);
+  const [isTaskOpen, setIsTaskOpen] = useState3(false);
+  const [isCreateTaskOpen, setIsCreateTaskOpen] = useState3(false);
+  const [selectedEvent, setSelectedEvent] = useState3(
+    null
+  );
   const openTask = () => setIsTaskOpen(true);
   const closeTask = () => {
     setIsTaskOpen(false);
@@ -268,7 +426,7 @@ function DayView({
   const openCreateTask = async () => {
     if (onDateClick) {
       try {
-        await onDateClick(startDate, view);
+        await onDateClick(startDate, "day");
       } catch (e) {
         return;
       }
@@ -282,15 +440,31 @@ function DayView({
   );
   const hours = useMemo(() => Array.from({ length: 24 }, (_, i) => i), []);
   const HOUR_ROW_HEIGHT = 48;
+  const dayStart = useMemo(() => startDate.startOf("day"), [startDate]);
+  const dayEnd = useMemo(() => startDate.endOf("day"), [startDate]);
+  const [now, setNow] = useState3(() => dayjs5());
+  const isViewingToday = startDate.isSame(now, "day");
+  useEffect(() => {
+    if (!isViewingToday) return;
+    const t = setInterval(() => setNow(dayjs5()), 6e4);
+    return () => clearInterval(t);
+  }, [isViewingToday]);
   const eventsForDay = useMemo(() => {
-    const dayStart = startDate.startOf("day");
-    const dayEnd = startDate.endOf("day");
     return scheduledEvents.filter((event) => {
-      const eventStart = dayjs3(event.start).startOf("day");
-      const eventEnd = dayjs3(event.end).endOf("day");
+      const eventStart = dayjs5(event.start);
+      const eventEnd = dayjs5(event.end);
       return (eventStart.isSame(dayStart) || eventStart.isBefore(dayEnd)) && (eventEnd.isSame(dayEnd) || eventEnd.isAfter(dayStart));
     });
-  }, [scheduledEvents, startDate]);
+  }, [scheduledEvents, dayStart, dayEnd]);
+  const { fullDayEvents, timedEvents } = useMemo(() => {
+    const full = [];
+    const timed = [];
+    for (const event of eventsForDay) {
+      if (isFullDayEvent(event, dayStart, dayEnd)) full.push(event);
+      else timed.push(event);
+    }
+    return { fullDayEvents: full, timedEvents: timed };
+  }, [eventsForDay, dayStart, dayEnd]);
   const handleOpenEvent = async (event) => {
     if (onEventClick) {
       try {
@@ -308,10 +482,10 @@ function DayView({
   const handleNextDay = () => {
     setStartDate(startDate.add(1, "day"));
   };
-  const handleUnassignedEventDrop = useCallback(
+  const handleUnassignedEventDrop = useCallback3(
     (event) => {
-      const oldStart = dayjs3(event.start);
-      const oldEnd = dayjs3(event.end);
+      const oldStart = dayjs5(event.start);
+      const oldEnd = dayjs5(event.end);
       const newStart = startDate.startOf("day");
       const newEnd = startDate.add(1, "days").startOf("day");
       const updatedEvent = __spreadProps(__spreadValues({}, event), {
@@ -331,7 +505,7 @@ function DayView({
               end: newEnd,
               oldStart,
               oldEnd,
-              view
+              view: "day"
             });
           } catch (e) {
             setScheduledEvents(prevScheduled);
@@ -340,40 +514,61 @@ function DayView({
         })();
       }
     },
-    [startDate, scheduledEvents, setScheduledEvents, setUnscheduledEvents, onEventMove, view]
+    [
+      startDate,
+      scheduledEvents,
+      unscheduledEvents,
+      setScheduledEvents,
+      setUnscheduledEvents,
+      onEventMove
+    ]
   );
-  const handleCreateSubmit = useCallback(
-    async (data) => {
-      const id = `event-${Date.now()}-${Math.random().toString(36).slice(2)}`;
-      const newEvent = {
-        id,
-        title: data.name,
-        start: data.startDate,
-        end: data.endDate
-      };
-      const prevScheduled = [...scheduledEvents];
-      setScheduledEvents((prev) => [...prev, newEvent]);
-      closeCreateTask();
-      if (onEventCreate) {
-        try {
-          await onEventCreate({
-            id: newEvent.id,
-            title: newEvent.title,
-            start: dayjs3(newEvent.start),
-            end: dayjs3(newEvent.end)
-          });
-        } catch (e) {
-          setScheduledEvents(prevScheduled);
-        }
-      }
-    },
-    [scheduledEvents, setScheduledEvents, onEventCreate]
+  const handleCreateSubmit = useCreateEventSubmit(
+    scheduledEvents,
+    setScheduledEvents,
+    onEventCreate,
+    closeCreateTask
   );
   return /* @__PURE__ */ jsxs3("div", { "data-slot": "day-view", className, style, children: [
     /* @__PURE__ */ jsxs3("div", { "data-slot": "day-view-nav", children: [
-      /* @__PURE__ */ jsx7(Button, { type: "button", onClick: handlePreviousDay, "aria-label": "Previous day", children: "\u2190" }),
-      /* @__PURE__ */ jsx7(Title, { level: 4, children: dayTitle }),
-      /* @__PURE__ */ jsx7(Button, { type: "button", onClick: handleNextDay, "aria-label": "Next day", children: "\u2192" })
+      /* @__PURE__ */ jsx8(
+        Button,
+        {
+          type: "button",
+          onClick: handlePreviousDay,
+          "aria-label": "Previous day",
+          children: previousDayButtonContent
+        }
+      ),
+      /* @__PURE__ */ jsx8(Title, { level: 4, children: dayTitle }),
+      /* @__PURE__ */ jsx8(Button, { type: "button", onClick: handleNextDay, "aria-label": "Next day", children: nextDayButtonContent })
+    ] }),
+    fullDayEvents.length > 0 && /* @__PURE__ */ jsxs3("div", { "data-slot": "day-multiday", children: [
+      /* @__PURE__ */ jsx8("h3", { "data-slot": "day-multiday-title", children: "All-day / multi-day" }),
+      /* @__PURE__ */ jsx8("div", { "data-slot": "day-multiday-items", children: fullDayEvents.map((event) => {
+        var _a;
+        return /* @__PURE__ */ jsxs3(
+          "div",
+          {
+            "data-slot": "event",
+            "data-event-id": event.id,
+            "data-allday": true,
+            "data-color": (_a = event.color) != null ? _a : void 0,
+            children: [
+              /* @__PURE__ */ jsx8("span", { children: event.title }),
+              /* @__PURE__ */ jsx8(
+                EventActionButtonSlot,
+                {
+                  event,
+                  onOpen: () => handleOpenEvent(event),
+                  EventActionButton
+                }
+              )
+            ]
+          },
+          event.id
+        );
+      }) })
     ] }),
     /* @__PURE__ */ jsxs3(
       "div",
@@ -385,7 +580,7 @@ function DayView({
           gridTemplateRows: `repeat(24, ${HOUR_ROW_HEIGHT}px)`
         },
         children: [
-          hours.map((hour) => /* @__PURE__ */ jsx7(
+          hours.map((hour) => /* @__PURE__ */ jsx8(
             "div",
             {
               "data-slot": "day-hour",
@@ -395,49 +590,114 @@ function DayView({
             },
             hour
           )),
-          /* @__PURE__ */ jsx7(
+          /* @__PURE__ */ jsxs3(
             "div",
             {
               "data-slot": "day-events",
-              style: { gridColumn: 2, gridRow: "1 / -1", minHeight: 24 * HOUR_ROW_HEIGHT },
-              children: eventsForDay.length === 0 ? /* @__PURE__ */ jsx7("p", { "data-slot": "day-no-events", children: "No events scheduled" }) : eventsForDay.map((event) => {
-                var _a;
-                return /* @__PURE__ */ jsxs3(
+              style: {
+                gridColumn: 2,
+                gridRow: "1 / -1",
+                minHeight: 24 * HOUR_ROW_HEIGHT,
+                position: "relative",
+                borderLeft: "1px solid #f3f4f6"
+              },
+              children: [
+                isViewingToday && /* @__PURE__ */ jsx8(
                   "div",
                   {
-                    "data-slot": "event",
-                    "data-event-id": event.id,
-                    "data-color": (_a = event.color) != null ? _a : void 0,
-                    children: [
-                      /* @__PURE__ */ jsx7("span", { children: event.title }),
-                      /* @__PURE__ */ jsx7(
-                        Button,
-                        {
-                          type: "button",
-                          onMouseDown: (e) => e.stopPropagation(),
-                          onClick: (e) => {
-                            e.stopPropagation();
-                            e.preventDefault();
-                            handleOpenEvent(event);
-                          },
-                          "aria-label": `View ${event.title}`,
-                          children: "View"
-                        }
-                      )
-                    ]
-                  },
-                  event.id
-                );
-              })
+                    "data-slot": "day-now-line",
+                    "aria-hidden": true,
+                    style: {
+                      position: "absolute",
+                      left: 0,
+                      right: 0,
+                      top: now.diff(dayStart, "minute") * (HOUR_ROW_HEIGHT / 60),
+                      height: 0,
+                      borderTop: "2px solid var(--now-line-color, #dc2626)",
+                      pointerEvents: "none",
+                      zIndex: 2
+                    }
+                  }
+                ),
+                timedEvents.length === 0 ? /* @__PURE__ */ jsx8(
+                  "p",
+                  {
+                    "data-slot": "day-no-events",
+                    style: {
+                      position: "absolute",
+                      top: "1rem",
+                      left: "1rem",
+                      right: "1rem",
+                      textAlign: "center",
+                      margin: 0
+                    },
+                    children: "No events scheduled"
+                  }
+                ) : timedEvents.map((event) => {
+                  var _a;
+                  const pos = getEventDayPosition(
+                    event,
+                    dayStart,
+                    dayEnd,
+                    HOUR_ROW_HEIGHT
+                  );
+                  if (!pos) return null;
+                  return /* @__PURE__ */ jsxs3(
+                    "div",
+                    {
+                      "data-slot": "event",
+                      "data-event-id": event.id,
+                      "data-color": (_a = event.color) != null ? _a : void 0,
+                      style: {
+                        position: "absolute",
+                        left: 4,
+                        right: 4,
+                        top: pos.topPx,
+                        height: pos.heightPx,
+                        boxSizing: "border-box",
+                        padding: "2px 6px",
+                        overflow: "hidden"
+                      },
+                      children: [
+                        /* @__PURE__ */ jsx8("span", { children: event.title }),
+                        /* @__PURE__ */ jsx8(
+                          EventActionButtonSlot,
+                          {
+                            event,
+                            onOpen: () => handleOpenEvent(event),
+                            EventActionButton
+                          }
+                        )
+                      ]
+                    },
+                    event.id
+                  );
+                })
+              ]
             }
           )
         ]
       }
     ),
     /* @__PURE__ */ jsxs3("div", { "data-slot": "unscheduled-list", children: [
-      /* @__PURE__ */ jsx7("h3", { "data-slot": "unscheduled-title", children: "Unscheduled events" }),
-      !readOnly && /* @__PURE__ */ jsx7(Tooltip, { title: "Add new event", children: /* @__PURE__ */ jsx7(Button, { type: "button", onClick: openCreateTask, "aria-label": "Add event", children: "+" }) }),
-      /* @__PURE__ */ jsx7(
+      /* @__PURE__ */ jsx8("h3", { "data-slot": "unscheduled-title", children: "Unscheduled events" }),
+      !readOnly && (AddEventButton ? /* @__PURE__ */ jsx8(AddEventButton, { onClick: openCreateTask }) : /* @__PURE__ */ jsx8(Tooltip, { title: "Add new event", children: /* @__PURE__ */ jsx8(
+        Button,
+        {
+          type: "button",
+          onClick: openCreateTask,
+          "aria-label": "Add event",
+          children: "+"
+        }
+      ) })),
+      CreateEventModal ? /* @__PURE__ */ jsx8(
+        CreateEventModal,
+        {
+          isOpen: isCreateTaskOpen,
+          onClose: closeCreateTask,
+          onSubmit: handleCreateSubmit
+        }
+      ) : /* @__PURE__ */ jsx8(
         CreateTaskModal,
         {
           isOpen: isCreateTaskOpen,
@@ -445,9 +705,9 @@ function DayView({
           onSubmit: handleCreateSubmit
         }
       ),
-      /* @__PURE__ */ jsx7("div", { "data-slot": "unscheduled-items", children: unscheduledEvents.map((event) => {
+      /* @__PURE__ */ jsx8("div", { "data-slot": "unscheduled-items", children: unscheduledEvents.map((event) => {
         var _a;
-        return /* @__PURE__ */ jsx7(
+        return /* @__PURE__ */ jsx8(
           "div",
           {
             "data-slot": "unscheduled-event",
@@ -463,9 +723,23 @@ function DayView({
           event.id
         );
       }) }),
-      unscheduledEvents.length > 0 && !readOnly && /* @__PURE__ */ jsx7("p", { "data-slot": "unscheduled-hint", children: "Drag an event onto the day above to schedule it, or double-click to view." })
+      unscheduledEvents.length > 0 && !readOnly && /* @__PURE__ */ jsx8("p", { "data-slot": "unscheduled-hint", children: "Drag an event onto the day above to schedule it, or double-click to view." })
     ] }),
-    selectedEvent && mapFromEvent && /* @__PURE__ */ jsx7(
+    selectedEvent && (EventDetailModal ? /* @__PURE__ */ jsx8(
+      EventDetailModal,
+      {
+        task: mapFromEvent ? mapFromEvent(selectedEvent) : {
+          id: selectedEvent.id,
+          name: selectedEvent.title,
+          startDate: selectedEvent.start,
+          endDate: selectedEvent.end,
+          employees: []
+        },
+        isOpen: isTaskOpen,
+        onClose: closeTask,
+        updateTask
+      }
+    ) : mapFromEvent ? /* @__PURE__ */ jsx8(
       TaskModal,
       {
         task: mapFromEvent(selectedEvent),
@@ -473,18 +747,22 @@ function DayView({
         onClose: closeTask,
         updateTask
       }
-    )
+    ) : null)
   ] });
 }
 
+// src/components/MonthView.tsx
+import dayjs8 from "dayjs";
+import { useMemo as useMemo2, useState as useState5 } from "react";
+
 // src/utils/calendarHelpers.ts
-import dayjs4 from "dayjs";
+import dayjs6 from "dayjs";
 import isBetween from "dayjs/plugin/isBetween";
 import minMax from "dayjs/plugin/minMax";
-dayjs4.extend(isBetween);
-dayjs4.extend(minMax);
+dayjs6.extend(isBetween);
+dayjs6.extend(minMax);
 var generateCalendarWeeks = (year) => {
-  const startDate = dayjs4(`${year}-01-01`);
+  const startDate = dayjs6(`${year}-01-01`);
   const weeks = [];
   let currentWeek = [];
   let currentDate = startDate.clone();
@@ -503,47 +781,43 @@ var generateCalendarWeeks = (year) => {
 };
 var getEventsForWeek = (week, events) => {
   return events.filter((event) => {
-    const start = dayjs4(event.start);
-    const end = dayjs4(event.end);
+    const start = dayjs6(event.start);
+    const end = dayjs6(event.end);
     return week.some((day) => day.isBetween(start, end, void 0, "[]"));
   });
 };
 var getEventsForYear = (week, events, year) => {
   return events.filter((event) => {
-    const start = dayjs4(event.start);
-    const end = dayjs4(event.end);
+    const start = dayjs6(event.start);
+    const end = dayjs6(event.end);
     return week.some((day) => day.isBetween(start, end, void 0, "[]")) && (start.year() === year || end.year() === year);
   });
 };
 var getTasksForWeek = (week, tasks) => {
   return tasks.filter((task) => {
-    const start = dayjs4(task.startDate);
-    const end = dayjs4(task.endDate);
+    const start = dayjs6(task.startDate);
+    const end = dayjs6(task.endDate);
     return week.some((day) => day.isBetween(start, end, void 0, "[]"));
   });
 };
 var getTasksForYear = (week, tasks, year) => {
   return tasks.filter((task) => {
-    const start = dayjs4(task.startDate);
-    const end = dayjs4(task.endDate);
+    const start = dayjs6(task.startDate);
+    const end = dayjs6(task.endDate);
     return week.some((day) => day.isBetween(start, end, void 0, "[]")) && (start.year() === year || end.year() === year);
   });
 };
 
-// src/components/MonthView.tsx
-import dayjs6 from "dayjs";
-import { useMemo as useMemo2, useState as useState4 } from "react";
-
 // src/components/ui/Text.tsx
-import { jsx as jsx8 } from "react/jsx-runtime";
+import { jsx as jsx9 } from "react/jsx-runtime";
 var Text = ({ children, className }) => {
-  return /* @__PURE__ */ jsx8("span", { "data-slot": "text", className, children });
+  return /* @__PURE__ */ jsx9("span", { "data-slot": "text", className, children });
 };
 
 // src/components/Week.tsx
-import dayjs5 from "dayjs";
-import { useState as useState3 } from "react";
-import { jsx as jsx9, jsxs as jsxs4 } from "react/jsx-runtime";
+import dayjs7 from "dayjs";
+import { useState as useState4 } from "react";
+import { jsx as jsx10, jsxs as jsxs4 } from "react/jsx-runtime";
 function Week({
   days,
   events,
@@ -558,8 +832,8 @@ function Week({
   },
   mapFromEvent
 }) {
-  const [isTaskOpen, setIsTaskOpen] = useState3(false);
-  const [selectedEvent, setSelectedEvent] = useState3(null);
+  const [isTaskOpen, setIsTaskOpen] = useState4(false);
+  const [selectedEvent, setSelectedEvent] = useState4(null);
   const openTask = () => setIsTaskOpen(true);
   const closeTask = () => {
     setIsTaskOpen(false);
@@ -567,9 +841,9 @@ function Week({
   };
   const eventsForWeek = events.filter(
     (event) => days.some(
-      (day) => dayjs5(day).isBetween(
-        dayjs5(event.start),
-        dayjs5(event.end),
+      (day) => dayjs7(day).isBetween(
+        dayjs7(event.start),
+        dayjs7(event.end),
         void 0,
         "[]"
       )
@@ -598,13 +872,13 @@ function Week({
   };
   return /* @__PURE__ */ jsxs4("div", { "data-slot": "week", "data-month-view": isMonthView ? "true" : void 0, children: [
     /* @__PURE__ */ jsxs4("div", { "data-slot": "week-days", style: { display: "grid", gridTemplateColumns: "repeat(7, 1fr)" }, children: [
-      Array(days[0].day()).fill(null).map((_, index) => /* @__PURE__ */ jsx9("div", { "data-slot": "week-day-spacer" }, `empty-${index}`)),
+      Array(days[0].day()).fill(null).map((_, index) => /* @__PURE__ */ jsx10("div", { "data-slot": "week-day-spacer" }, `empty-${index}`)),
       days.map((day, index) => {
         const isCurrentMonth = day.month() === currentMonth;
         if (isCurrentMonth) {
           return /* @__PURE__ */ jsxs4("div", { "data-slot": "week-day", "data-date": day.format("YYYY-MM-DD"), children: [
-            /* @__PURE__ */ jsx9(Text, { children: day.format("D") }),
-            !readOnly && /* @__PURE__ */ jsx9(Tooltip, { title: "Add event", children: /* @__PURE__ */ jsx9(
+            /* @__PURE__ */ jsx10(Text, { children: day.format("D") }),
+            !readOnly && /* @__PURE__ */ jsx10(Tooltip, { title: "Add event", children: /* @__PURE__ */ jsx10(
               Button,
               {
                 type: "button",
@@ -618,22 +892,22 @@ function Week({
             ) })
           ] }, index);
         }
-        return /* @__PURE__ */ jsx9("div", { "data-slot": "week-day-spacer" }, `empty-${index}`);
+        return /* @__PURE__ */ jsx10("div", { "data-slot": "week-day-spacer" }, `empty-${index}`);
       })
     ] }),
     /* @__PURE__ */ jsxs4("div", { "data-slot": "week-events", style: { display: "grid", gridTemplateColumns: "repeat(7, 1fr)" }, children: [
       eventsForWeek.slice(0, 3).map((event, eventIndex) => {
         var _a;
-        const eventStart = dayjs5(event.start);
-        const eventEnd = dayjs5(event.end);
-        const weekStart = dayjs5(days[0]);
-        const weekEnd = dayjs5(days[6]);
-        const actualStart = dayjs5.max(eventStart, weekStart);
-        const actualEnd = dayjs5.min(eventEnd, weekEnd);
+        const eventStart = dayjs7(event.start);
+        const eventEnd = dayjs7(event.end);
+        const weekStart = dayjs7(days[0]);
+        const weekEnd = dayjs7(days[6]);
+        const actualStart = dayjs7.max(eventStart, weekStart);
+        const actualEnd = dayjs7.min(eventEnd, weekEnd);
         const startColumn = days.findIndex((d) => d.isSame(actualStart, "day"));
         const eventSpan = actualEnd.diff(actualStart, "days") + 1;
         const endColumn = startColumn + eventSpan - 1;
-        return /* @__PURE__ */ jsx9(
+        return /* @__PURE__ */ jsx10(
           "div",
           {
             "data-slot": "event",
@@ -655,7 +929,7 @@ function Week({
         " events this week"
       ] })
     ] }),
-    selectedEvent && mapFromEvent && /* @__PURE__ */ jsx9(
+    selectedEvent && mapFromEvent && /* @__PURE__ */ jsx10(
       TaskModal,
       {
         task: mapFromEvent(selectedEvent),
@@ -668,32 +942,35 @@ function Week({
 }
 
 // src/components/MonthView.tsx
-import { jsx as jsx10, jsxs as jsxs5 } from "react/jsx-runtime";
+import { jsx as jsx11, jsxs as jsxs5 } from "react/jsx-runtime";
 function MonthView({
   events,
   setEvents,
   setStartDate,
   setZoomLevel,
-  view,
   onEventClick,
   onDateClick,
   readOnly = false,
   updateTask = async () => {
   },
   mapFromEvent,
+  AddEventButton,
+  CreateEventModal,
+  previousMonthButtonContent = "\u2190",
+  nextMonthButtonContent = "\u2192",
   className,
   style
 }) {
-  const [currentMonth, setCurrentMonth] = useState4(dayjs6().month());
-  const [selectedDate, setSelectedDate] = useState4(null);
-  const [isModalOpen, setIsModalOpen] = useState4(false);
+  const [currentMonth, setCurrentMonth] = useState5(dayjs8().month());
+  const [selectedDate, setSelectedDate] = useState5(null);
+  const [isModalOpen, setIsModalOpen] = useState5(false);
   const openModalWithDate = (date) => {
     setSelectedDate(date);
     setIsModalOpen(true);
   };
   const generateCalendarData = () => {
-    const year = dayjs6().year();
-    const startDate = dayjs6(`${year}-01-01`);
+    const year = dayjs8().year();
+    const startDate = dayjs8(`${year}-01-01`);
     const weeks = [];
     let currentWeek = [];
     let currentDate = startDate.clone();
@@ -720,14 +997,23 @@ function MonthView({
   };
   return /* @__PURE__ */ jsxs5("div", { "data-slot": "month-view", className, style, children: [
     /* @__PURE__ */ jsxs5("div", { "data-slot": "month-view-nav", children: [
-      /* @__PURE__ */ jsx10(Button, { type: "button", onClick: handlePreviousMonth, "aria-label": "Previous month", children: "\u2190" }),
-      /* @__PURE__ */ jsx10(Title, { level: 4, children: dayjs6(`${dayjs6().year()}-${currentMonth + 1}-01`).format("MMMM") }),
-      /* @__PURE__ */ jsx10(Button, { type: "button", onClick: handleNextMonth, "aria-label": "Next month", children: "\u2192" })
+      /* @__PURE__ */ jsx11(
+        Button,
+        {
+          type: "button",
+          onClick: handlePreviousMonth,
+          "aria-label": "Previous month",
+          children: previousMonthButtonContent
+        }
+      ),
+      /* @__PURE__ */ jsx11(Title, { level: 4, children: dayjs8(`${dayjs8().year()}-${currentMonth + 1}-01`).format("MMMM") }),
+      /* @__PURE__ */ jsx11(Button, { type: "button", onClick: handleNextMonth, "aria-label": "Next month", children: nextMonthButtonContent }),
+      !readOnly && AddEventButton && /* @__PURE__ */ jsx11(AddEventButton, { onClick: () => openModalWithDate(dayjs8()) })
     ] }),
     /* @__PURE__ */ jsxs5("div", { "data-slot": "month-view-body", children: [
-      /* @__PURE__ */ jsx10("div", { "data-slot": "month-view-weekdays", children: ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map((day) => /* @__PURE__ */ jsx10("div", { "data-slot": "month-weekday", children: day }, day)) }),
-      /* @__PURE__ */ jsx10("div", { "data-slot": "month-view-weeks", children: calendarData.filter((week) => week.some((day) => day.month() === currentMonth)).map((week, weekIndex) => /* @__PURE__ */ jsxs5("div", { "data-slot": "month-week", children: [
-        /* @__PURE__ */ jsx10(
+      /* @__PURE__ */ jsx11("div", { "data-slot": "month-view-weekdays", children: ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map((day) => /* @__PURE__ */ jsx11("div", { "data-slot": "month-weekday", children: day }, day)) }),
+      /* @__PURE__ */ jsx11("div", { "data-slot": "month-view-weeks", children: calendarData.filter((week) => week.some((day) => day.month() === currentMonth)).map((week, weekIndex) => /* @__PURE__ */ jsxs5("div", { "data-slot": "month-week", children: [
+        /* @__PURE__ */ jsx11(
           "button",
           {
             type: "button",
@@ -741,7 +1027,7 @@ function MonthView({
             children: "\u2192"
           }
         ),
-        /* @__PURE__ */ jsx10(
+        /* @__PURE__ */ jsx11(
           Week,
           {
             days: week,
@@ -749,7 +1035,7 @@ function MonthView({
             onSelectDate: openModalWithDate,
             currentMonth,
             isMonthView: true,
-            view,
+            view: "month",
             readOnly,
             onEventClick,
             onDateClick,
@@ -759,7 +1045,19 @@ function MonthView({
         )
       ] }, weekIndex)) })
     ] }),
-    /* @__PURE__ */ jsx10(CreateTaskModal, { isOpen: isModalOpen, onClose: () => setIsModalOpen(false) })
+    CreateEventModal ? /* @__PURE__ */ jsx11(
+      CreateEventModal,
+      {
+        isOpen: isModalOpen,
+        onClose: () => setIsModalOpen(false)
+      }
+    ) : /* @__PURE__ */ jsx11(
+      CreateTaskModal,
+      {
+        isOpen: isModalOpen,
+        onClose: () => setIsModalOpen(false)
+      }
+    )
   ] });
 }
 
@@ -767,19 +1065,18 @@ function MonthView({
 import {
   DndContext,
   PointerSensor,
-  useDraggable,
   useSensor,
   useSensors
 } from "@dnd-kit/core";
-import dayjs8 from "dayjs";
-import { useCallback as useCallback2, useEffect, useMemo as useMemo3, useRef, useState as useState5 } from "react";
+import dayjs10 from "dayjs";
+import { useCallback as useCallback4, useEffect as useEffect2, useMemo as useMemo4, useRef, useState as useState6 } from "react";
 
 // src/utils/weekViewLayout.ts
-import dayjs7 from "dayjs";
+import dayjs9 from "dayjs";
 function getEventPlacement(event, weekStart, containerWidth, resizeOverlay) {
   if (containerWidth <= 0) return null;
-  const eventStart = dayjs7(event.start);
-  const eventEnd = dayjs7(event.end);
+  const eventStart = dayjs9(event.start);
+  const eventEnd = dayjs9(event.end);
   const weekEnd = weekStart.add(6, "days");
   const actualStart = eventStart.isBefore(weekStart) ? weekStart : eventStart;
   const actualEnd = eventEnd.isAfter(weekEnd) ? weekEnd : eventEnd;
@@ -831,8 +1128,10 @@ function getOverlapRowAssignments(placements) {
   return { rowIndices, numRows };
 }
 
-// src/components/WeekView.tsx
-import { Fragment, jsx as jsx11, jsxs as jsxs6 } from "react/jsx-runtime";
+// src/components/WeekEventCard.tsx
+import { useDraggable } from "@dnd-kit/core";
+import { useMemo as useMemo3 } from "react";
+import { Fragment, jsx as jsx12, jsxs as jsxs6 } from "react/jsx-runtime";
 var ROW_HEIGHT = 50;
 function WeekEventCard({
   event,
@@ -841,7 +1140,8 @@ function WeekEventCard({
   readOnly,
   onOpen,
   dragDeltaX,
-  onResizeStart
+  onResizeStart,
+  EventActionButton
 }) {
   var _a;
   const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
@@ -891,7 +1191,7 @@ function WeekEventCard({
     }, readOnly ? {} : __spreadValues(__spreadValues({}, attributes), listeners)), {
       children: [
         !readOnly && /* @__PURE__ */ jsxs6(Fragment, { children: [
-          /* @__PURE__ */ jsx11(
+          /* @__PURE__ */ jsx12(
             "div",
             {
               role: "button",
@@ -911,7 +1211,7 @@ function WeekEventCard({
               }
             }
           ),
-          /* @__PURE__ */ jsx11(
+          /* @__PURE__ */ jsx12(
             "div",
             {
               role: "button",
@@ -932,7 +1232,7 @@ function WeekEventCard({
             }
           )
         ] }),
-        /* @__PURE__ */ jsx11(
+        /* @__PURE__ */ jsx12(
           "span",
           {
             style: {
@@ -944,33 +1244,29 @@ function WeekEventCard({
             children: event.title
           }
         ),
-        /* @__PURE__ */ jsx11(
-          Button,
+        /* @__PURE__ */ jsx12(
+          EventActionButtonSlot,
           {
-            type: "button",
-            onMouseDown: (e) => e.stopPropagation(),
-            onClick: (e) => {
-              e.stopPropagation();
-              e.preventDefault();
-              onOpen();
-            },
-            "aria-label": `View ${event.title}`,
-            children: "View"
+            event,
+            onOpen,
+            EventActionButton
           }
         )
       ]
     })
   );
 }
+
+// src/components/WeekView.tsx
+import { jsx as jsx13, jsxs as jsxs7 } from "react/jsx-runtime";
+var ROW_HEIGHT2 = 50;
 function WeekView({
   startDate,
   scheduledEvents,
   unscheduledEvents,
   setScheduledEvents,
   setUnscheduledEvents,
-  getWeekDaysWithDates,
   setStartDate,
-  view,
   onEventMove,
   onEventResize,
   onEventCreate,
@@ -980,24 +1276,30 @@ function WeekView({
   updateTask = async () => {
   },
   mapFromEvent,
+  AddEventButton,
+  CreateEventModal,
+  EventActionButton,
+  EventDetailModal,
+  previousWeekButtonContent = "\u2190",
+  nextWeekButtonContent = "\u2192",
   className,
   style
 }) {
-  const [isTaskOpen, setIsTaskOpen] = useState5(false);
-  const [isCreateTaskOpen, setIsCreateTaskOpen] = useState5(false);
-  const [selectedEvent, setSelectedEvent] = useState5(
+  const [isTaskOpen, setIsTaskOpen] = useState6(false);
+  const [isCreateTaskOpen, setIsCreateTaskOpen] = useState6(false);
+  const [selectedEvent, setSelectedEvent] = useState6(
     null
   );
   const containerRef = useRef(null);
-  const [containerWidth, setContainerWidth] = useState5(0);
-  const [dragDelta, setDragDelta] = useState5(
+  const [containerWidth, setContainerWidth] = useState6(0);
+  const [dragDelta, setDragDelta] = useState6(
     null
   );
-  const [resizePreview, setResizePreview] = useState5(null);
-  const [resizing, setResizing] = useState5(null);
+  const [resizePreview, setResizePreview] = useState6(null);
+  const [resizing, setResizing] = useState6(null);
   const resizePreviewRef = useRef({ leftDeltaDays: 0, rightDeltaDays: 0 });
   const lastClampedDeltaRef = useRef(null);
-  useEffect(() => {
+  useEffect2(() => {
     const el = containerRef.current;
     if (!el) return;
     const ro = new ResizeObserver((entries) => {
@@ -1016,7 +1318,7 @@ function WeekView({
   const openCreateTask = async () => {
     if (onDateClick) {
       try {
-        await onDateClick(startDate, view);
+        await onDateClick(startDate, "week");
       } catch (e) {
         return;
       }
@@ -1035,20 +1337,27 @@ function WeekView({
     setSelectedEvent(event);
     openTask();
   };
-  const weekTitle = useMemo3(() => {
+  const weekTitle = useMemo4(() => {
     const endDate = startDate.add(6, "days");
     return `${startDate.format("MMM D")} - ${endDate.format("MMM D, YYYY")}`;
   }, [startDate]);
-  const handlePreviousWeek = useCallback2(() => {
+  const weekDaysWithDates = useMemo4(
+    () => Array.from({ length: 7 }).map((_, index) => {
+      const date = startDate.clone().add(index, "days");
+      return { dayIndex: index, date: date.format("YYYY-MM-DD") };
+    }),
+    [startDate]
+  );
+  const handlePreviousWeek = useCallback4(() => {
     setStartDate(startDate.subtract(1, "week"));
   }, [startDate, setStartDate]);
-  const handleNextWeek = useCallback2(() => {
+  const handleNextWeek = useCallback4(() => {
     setStartDate(startDate.add(1, "week"));
   }, [startDate, setStartDate]);
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } })
   );
-  const handleDragMove = useCallback2(
+  const handleDragMove = useCallback4(
     (event) => {
       const id = String(event.active.id);
       const ev = scheduledEvents.find((e) => e.id === id);
@@ -1071,7 +1380,7 @@ function WeekView({
     },
     [scheduledEvents, startDate, containerWidth]
   );
-  const handleDragEnd = useCallback2(
+  const handleDragEnd = useCallback4(
     (event) => {
       var _a;
       const { active, delta } = event;
@@ -1119,8 +1428,8 @@ function WeekView({
       }
       const newStart = newWeekStart.clone().add(tentativeStartOffset, "days");
       const newEnd = newStart.clone().add(durationDays - 1, "days");
-      const oldStart = dayjs8(ev.start);
-      const oldEnd = dayjs8(ev.end);
+      const oldStart = dayjs10(ev.start);
+      const oldEnd = dayjs10(ev.end);
       if (oldStart.isSame(newStart, "day") && oldEnd.isSame(newEnd, "day"))
         return;
       const updatedEvent = __spreadProps(__spreadValues({}, ev), {
@@ -1142,7 +1451,7 @@ function WeekView({
               end: newEnd,
               oldStart,
               oldEnd,
-              view
+              view: "week"
             });
           } catch (e) {
             setScheduledEvents(prevScheduled);
@@ -1159,12 +1468,11 @@ function WeekView({
       setScheduledEvents,
       setUnscheduledEvents,
       onEventMove,
-      view,
       handlePreviousWeek,
       handleNextWeek
     ]
   );
-  const onResizeStart = useCallback2(
+  const onResizeStart = useCallback4(
     (eventId, handle, startX) => {
       if (readOnly) return;
       const evt = scheduledEvents.find((e) => e.id === eventId);
@@ -1187,7 +1495,7 @@ function WeekView({
     },
     [readOnly, scheduledEvents, startDate, containerWidth]
   );
-  useEffect(() => {
+  useEffect2(() => {
     if (!resizing) return;
     const {
       eventId,
@@ -1235,8 +1543,8 @@ function WeekView({
       if (newDurationDays < 1) return;
       const newStart = startDate.clone().add(newStartOffsetDays, "days");
       const newEnd = newStart.clone().add(newDurationDays - 1, "days");
-      const oldStart = dayjs8(evt.start);
-      const oldEnd = dayjs8(evt.end);
+      const oldStart = dayjs10(evt.start);
+      const oldEnd = dayjs10(evt.end);
       const updatedEvent = __spreadProps(__spreadValues({}, evt), {
         start: newStart,
         end: newEnd
@@ -1254,7 +1562,7 @@ function WeekView({
               end: newEnd,
               oldStart,
               oldEnd,
-              view
+              view: "week"
             });
           } catch (e) {
             setScheduledEvents(prevScheduled);
@@ -1268,18 +1576,11 @@ function WeekView({
       window.removeEventListener("pointermove", onMove, { capture: true });
       window.removeEventListener("pointerup", onUp, { capture: true });
     };
-  }, [
-    resizing,
-    scheduledEvents,
-    startDate,
-    setScheduledEvents,
-    onEventResize,
-    view
-  ]);
-  const handleUnassignedEventDrop = useCallback2(
+  }, [resizing, scheduledEvents, startDate, setScheduledEvents, onEventResize]);
+  const handleUnassignedEventDrop = useCallback4(
     (event, dayIndex) => {
-      const oldStart = dayjs8(event.start);
-      const oldEnd = dayjs8(event.end);
+      const oldStart = dayjs10(event.start);
+      const oldEnd = dayjs10(event.end);
       const newStart = startDate.clone().add(dayIndex, "days");
       const newEnd = newStart.clone().add(1, "days");
       const updatedEvent = __spreadProps(__spreadValues({}, event), {
@@ -1299,7 +1600,7 @@ function WeekView({
               end: newEnd,
               oldStart,
               oldEnd,
-              view
+              view: "week"
             });
           } catch (e) {
             setScheduledEvents(prevScheduled);
@@ -1314,38 +1615,16 @@ function WeekView({
       unscheduledEvents,
       setScheduledEvents,
       setUnscheduledEvents,
-      onEventMove,
-      view
+      onEventMove
     ]
   );
-  const handleCreateSubmit = useCallback2(
-    async (data) => {
-      const id = `event-${Date.now()}-${Math.random().toString(36).slice(2)}`;
-      const newEvent = {
-        id,
-        title: data.name,
-        start: data.startDate,
-        end: data.endDate
-      };
-      const prevScheduled = [...scheduledEvents];
-      setScheduledEvents((prev) => [...prev, newEvent]);
-      closeCreateTask();
-      if (onEventCreate) {
-        try {
-          await onEventCreate({
-            id: newEvent.id,
-            title: newEvent.title,
-            start: dayjs8(newEvent.start),
-            end: dayjs8(newEvent.end)
-          });
-        } catch (e) {
-          setScheduledEvents(prevScheduled);
-        }
-      }
-    },
-    [scheduledEvents, setScheduledEvents, onEventCreate]
+  const handleCreateSubmit = useCreateEventSubmit(
+    scheduledEvents,
+    setScheduledEvents,
+    onEventCreate,
+    closeCreateTask
   );
-  const gridStyle = useMemo3(
+  const gridStyle = useMemo4(
     () => ({
       display: "grid",
       gridTemplateColumns: "repeat(7, 1fr)",
@@ -1353,7 +1632,7 @@ function WeekView({
     }),
     []
   );
-  const eventsWithPlacementAndRow = useMemo3(() => {
+  const eventsWithPlacementAndRow = useMemo4(() => {
     const withPlacement = scheduledEvents.map((event) => ({
       event,
       placement: getEventPlacement(
@@ -1375,41 +1654,34 @@ function WeekView({
       }))
     );
     return { items: withPlacement, rowIndices, numRows };
-  }, [
-    scheduledEvents,
-    startDate,
-    containerWidth,
-    resizePreview == null ? void 0 : resizePreview.eventId,
-    resizePreview == null ? void 0 : resizePreview.leftDeltaDays,
-    resizePreview == null ? void 0 : resizePreview.rightDeltaDays
-  ]);
-  const eventsOverlayStyle = useMemo3(
+  }, [scheduledEvents, startDate, containerWidth, resizePreview]);
+  const eventsOverlayStyle = useMemo4(
     () => ({
       position: "relative",
       height: Math.max(
-        ROW_HEIGHT,
-        eventsWithPlacementAndRow.numRows * ROW_HEIGHT
+        ROW_HEIGHT2,
+        eventsWithPlacementAndRow.numRows * ROW_HEIGHT2
       ),
       width: "100%"
     }),
     [eventsWithPlacementAndRow.numRows]
   );
-  return /* @__PURE__ */ jsxs6("div", { "data-slot": "week-view", className, style, children: [
-    /* @__PURE__ */ jsxs6("div", { "data-slot": "week-view-nav", children: [
-      /* @__PURE__ */ jsx11(
+  return /* @__PURE__ */ jsxs7("div", { "data-slot": "week-view", className, style, children: [
+    /* @__PURE__ */ jsxs7("div", { "data-slot": "week-view-nav", children: [
+      /* @__PURE__ */ jsx13(
         Button,
         {
           type: "button",
           onClick: handlePreviousWeek,
           "aria-label": "Previous week",
-          children: "\u2190"
+          children: previousWeekButtonContent
         }
       ),
-      /* @__PURE__ */ jsx11(Title, { level: 4, children: weekTitle }),
-      /* @__PURE__ */ jsx11(Button, { type: "button", onClick: handleNextWeek, "aria-label": "Next week", children: "\u2192" })
+      /* @__PURE__ */ jsx13(Title, { level: 4, children: weekTitle }),
+      /* @__PURE__ */ jsx13(Button, { type: "button", onClick: handleNextWeek, "aria-label": "Next week", children: nextWeekButtonContent })
     ] }),
-    /* @__PURE__ */ jsxs6("div", { "data-slot": "week-view-grid", ref: containerRef, style: gridStyle, children: [
-      getWeekDaysWithDates().map(({ dayIndex, date }) => /* @__PURE__ */ jsxs6(
+    /* @__PURE__ */ jsxs7("div", { "data-slot": "week-view-grid", ref: containerRef, style: gridStyle, children: [
+      weekDaysWithDates.map(({ dayIndex, date }) => /* @__PURE__ */ jsxs7(
         "div",
         {
           "data-slot": "week-day-cell",
@@ -1417,19 +1689,19 @@ function WeekView({
           "data-date": date,
           style: { padding: "4px", borderRight: "1px solid #e5e7eb" },
           children: [
-            /* @__PURE__ */ jsx11("span", { children: dayjs8(date).format("ddd") }),
-            /* @__PURE__ */ jsx11("span", { children: dayjs8(date).format("D") })
+            /* @__PURE__ */ jsx13("span", { children: dayjs10(date).format("ddd") }),
+            /* @__PURE__ */ jsx13("span", { children: dayjs10(date).format("D") })
           ]
         },
         `day-${dayIndex}`
       )),
-      /* @__PURE__ */ jsx11("div", { style: __spreadValues({ gridColumn: "1 / -1" }, eventsOverlayStyle), children: /* @__PURE__ */ jsx11(
+      /* @__PURE__ */ jsx13("div", { style: __spreadValues({ gridColumn: "1 / -1" }, eventsOverlayStyle), children: /* @__PURE__ */ jsx13(
         DndContext,
         {
           sensors,
           onDragMove: handleDragMove,
           onDragEnd: handleDragEnd,
-          children: eventsWithPlacementAndRow.items.map(({ event }, i) => /* @__PURE__ */ jsx11(
+          children: eventsWithPlacementAndRow.items.map(({ event }, i) => /* @__PURE__ */ jsx13(
             WeekEventCard,
             {
               event,
@@ -1438,16 +1710,17 @@ function WeekView({
               readOnly,
               onOpen: () => handleOpenEvent(event),
               dragDeltaX: (dragDelta == null ? void 0 : dragDelta.id) === event.id ? dragDelta.x : null,
-              onResizeStart
+              onResizeStart,
+              EventActionButton
             },
             event.id
           ))
         }
       ) })
     ] }),
-    /* @__PURE__ */ jsxs6("div", { "data-slot": "unscheduled-list", children: [
-      /* @__PURE__ */ jsx11("h3", { "data-slot": "unscheduled-title", children: "Unscheduled events" }),
-      !readOnly && /* @__PURE__ */ jsx11(Tooltip, { title: "Add new event", children: /* @__PURE__ */ jsx11(
+    /* @__PURE__ */ jsxs7("div", { "data-slot": "unscheduled-list", children: [
+      /* @__PURE__ */ jsx13("h3", { "data-slot": "unscheduled-title", children: "Unscheduled events" }),
+      !readOnly && (AddEventButton ? /* @__PURE__ */ jsx13(AddEventButton, { onClick: openCreateTask }) : /* @__PURE__ */ jsx13(Tooltip, { title: "Add new event", children: /* @__PURE__ */ jsx13(
         Button,
         {
           type: "button",
@@ -1455,8 +1728,15 @@ function WeekView({
           "aria-label": "Add event",
           children: "+"
         }
-      ) }),
-      /* @__PURE__ */ jsx11(
+      ) })),
+      CreateEventModal ? /* @__PURE__ */ jsx13(
+        CreateEventModal,
+        {
+          isOpen: isCreateTaskOpen,
+          onClose: closeCreateTask,
+          onSubmit: handleCreateSubmit
+        }
+      ) : /* @__PURE__ */ jsx13(
         CreateTaskModal,
         {
           isOpen: isCreateTaskOpen,
@@ -1464,9 +1744,9 @@ function WeekView({
           onSubmit: handleCreateSubmit
         }
       ),
-      /* @__PURE__ */ jsx11("div", { "data-slot": "unscheduled-items", children: unscheduledEvents.map((event) => {
+      /* @__PURE__ */ jsx13("div", { "data-slot": "unscheduled-items", children: unscheduledEvents.map((event) => {
         var _a;
-        return /* @__PURE__ */ jsx11(
+        return /* @__PURE__ */ jsx13(
           "div",
           {
             "data-slot": "unscheduled-event",
@@ -1491,7 +1771,21 @@ function WeekView({
         );
       }) })
     ] }),
-    selectedEvent && mapFromEvent && /* @__PURE__ */ jsx11(
+    selectedEvent && (EventDetailModal ? /* @__PURE__ */ jsx13(
+      EventDetailModal,
+      {
+        task: mapFromEvent ? mapFromEvent(selectedEvent) : {
+          id: selectedEvent.id,
+          name: selectedEvent.title,
+          startDate: selectedEvent.start,
+          endDate: selectedEvent.end,
+          employees: []
+        },
+        isOpen: isTaskOpen,
+        onClose: closeTask,
+        updateTask
+      }
+    ) : mapFromEvent ? /* @__PURE__ */ jsx13(
       TaskModal,
       {
         task: mapFromEvent(selectedEvent),
@@ -1499,39 +1793,42 @@ function WeekView({
         onClose: closeTask,
         updateTask
       }
-    )
+    ) : null)
   ] });
 }
 
 // src/components/YearView.tsx
-import dayjs9 from "dayjs";
-import { useMemo as useMemo4, useState as useState6 } from "react";
-import { jsx as jsx12, jsxs as jsxs7 } from "react/jsx-runtime";
+import dayjs11 from "dayjs";
+import { useMemo as useMemo5, useState as useState7 } from "react";
+import { jsx as jsx14, jsxs as jsxs8 } from "react/jsx-runtime";
 function YearView({
   events,
   setEvents,
   setStartDate,
   setZoomLevel,
-  view,
   onEventClick,
   onDateClick,
   readOnly = false,
   updateTask = async () => {
   },
   mapFromEvent,
+  AddEventButton,
+  CreateEventModal,
+  previousYearButtonContent = "\u2190",
+  nextYearButtonContent = "\u2192",
   className,
   style
 }) {
-  const [selectedDate, setSelectedDate] = useState6(null);
-  const [isModalOpen, setIsModalOpen] = useState6(false);
-  const [currentYear, setCurrentYear] = useState6(dayjs9().year());
+  const [selectedDate, setSelectedDate] = useState7(null);
+  const [isModalOpen, setIsModalOpen] = useState7(false);
+  const [currentYear, setCurrentYear] = useState7(dayjs11().year());
   const openModalWithDate = (date) => {
     setSelectedDate(date);
     setIsModalOpen(true);
   };
   const generateCalendarData = () => {
-    const year = dayjs9().year();
-    const startDate = dayjs9(`${year}-01-01`);
+    const year = dayjs11().year();
+    const startDate = dayjs11(`${year}-01-01`);
     const weeks = [];
     let currentWeek = [];
     let currentDate = startDate.clone();
@@ -1548,7 +1845,7 @@ function YearView({
     }
     return weeks;
   };
-  const calendarData = useMemo4(() => generateCalendarData(), []);
+  const calendarData = useMemo5(() => generateCalendarData(), []);
   const getEventsForWeekInYear = (week) => getEventsForYear(week, events, currentYear);
   const handlePreviousYear = () => {
     setCurrentYear((prev) => prev - 1);
@@ -1556,17 +1853,28 @@ function YearView({
   const handleNextYear = () => {
     setCurrentYear((prev) => prev + 1);
   };
-  return /* @__PURE__ */ jsxs7("div", { "data-slot": "year-view", className, style, children: [
-    /* @__PURE__ */ jsxs7("div", { "data-slot": "year-view-nav", children: [
-      /* @__PURE__ */ jsx12(Button, { type: "button", onClick: handlePreviousYear, "aria-label": "Previous year", children: "\u2190" }),
-      /* @__PURE__ */ jsx12(Title, { level: 4, children: currentYear }),
-      /* @__PURE__ */ jsx12(Button, { type: "button", onClick: handleNextYear, "aria-label": "Next year", children: "\u2192" })
+  return /* @__PURE__ */ jsxs8("div", { "data-slot": "year-view", className, style, children: [
+    /* @__PURE__ */ jsxs8("div", { "data-slot": "year-view-nav", children: [
+      /* @__PURE__ */ jsx14(
+        Button,
+        {
+          type: "button",
+          onClick: handlePreviousYear,
+          "aria-label": "Previous year",
+          children: previousYearButtonContent
+        }
+      ),
+      /* @__PURE__ */ jsx14(Title, { level: 4, children: currentYear }),
+      /* @__PURE__ */ jsx14(Button, { type: "button", onClick: handleNextYear, "aria-label": "Next year", children: nextYearButtonContent }),
+      !readOnly && AddEventButton && /* @__PURE__ */ jsx14(AddEventButton, { onClick: () => openModalWithDate(dayjs11()) })
     ] }),
-    /* @__PURE__ */ jsx12("div", { "data-slot": "year-view-months", children: [...Array(12)].map((_, monthIndex) => /* @__PURE__ */ jsxs7("div", { "data-slot": "year-month", children: [
-      /* @__PURE__ */ jsx12(Title, { level: 4, children: dayjs9(`${currentYear}-${monthIndex + 1}-01`).format("MMMM") }),
-      /* @__PURE__ */ jsx12("div", { "data-slot": "year-month-weekdays", children: ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map((day) => /* @__PURE__ */ jsx12("div", { "data-slot": "year-weekday", children: day }, day)) }),
-      /* @__PURE__ */ jsx12("div", { "data-slot": "year-month-weeks", children: calendarData.filter((week) => week.some((day) => day.month() === monthIndex)).map((week, weekIndex) => /* @__PURE__ */ jsxs7("div", { "data-slot": "year-week", children: [
-        /* @__PURE__ */ jsx12(
+    /* @__PURE__ */ jsx14("div", { "data-slot": "year-view-months", children: [...Array(12)].map((_, monthIndex) => /* @__PURE__ */ jsxs8("div", { "data-slot": "year-month", children: [
+      /* @__PURE__ */ jsx14(Title, { level: 4, children: dayjs11(`${currentYear}-${monthIndex + 1}-01`).format("MMMM") }),
+      /* @__PURE__ */ jsx14("div", { "data-slot": "year-month-weekdays", children: ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map((day) => /* @__PURE__ */ jsx14("div", { "data-slot": "year-weekday", children: day }, day)) }),
+      /* @__PURE__ */ jsx14("div", { "data-slot": "year-month-weeks", children: calendarData.filter(
+        (week) => week.some((day) => day.month() === monthIndex)
+      ).map((week, weekIndex) => /* @__PURE__ */ jsxs8("div", { "data-slot": "year-week", children: [
+        /* @__PURE__ */ jsx14(
           "button",
           {
             type: "button",
@@ -1580,14 +1888,14 @@ function YearView({
             children: "\u2192"
           }
         ),
-        /* @__PURE__ */ jsx12(
+        /* @__PURE__ */ jsx14(
           Week,
           {
             days: week,
             events: getEventsForWeekInYear(week),
             onSelectDate: openModalWithDate,
             currentMonth: monthIndex,
-            view,
+            view: "year",
             readOnly,
             onEventClick,
             onDateClick,
@@ -1597,13 +1905,24 @@ function YearView({
         )
       ] }, weekIndex)) })
     ] }, monthIndex)) }),
-    /* @__PURE__ */ jsx12(CreateTaskModal, { isOpen: isModalOpen, onClose: () => setIsModalOpen(false) })
+    CreateEventModal ? /* @__PURE__ */ jsx14(
+      CreateEventModal,
+      {
+        isOpen: isModalOpen,
+        onClose: () => setIsModalOpen(false)
+      }
+    ) : /* @__PURE__ */ jsx14(
+      CreateTaskModal,
+      {
+        isOpen: isModalOpen,
+        onClose: () => setIsModalOpen(false)
+      }
+    )
   ] });
 }
 
 // src/components/Calendar.tsx
-import { jsx as jsx13, jsxs as jsxs8 } from "react/jsx-runtime";
-var ALL_VIEWS = ["day", "week", "month", "year"];
+import { jsx as jsx15, jsxs as jsxs9 } from "react/jsx-runtime";
 var VIEW_LABELS = {
   day: "Daily",
   week: "Weekly",
@@ -1619,12 +1938,12 @@ function Calendar({
   view,
   onViewChange,
   defaultEvents,
+  defaultScheduledEvents,
+  defaultUnscheduledEvents,
   defaultDate,
   defaultView,
   showSwitcher = true,
   views = ALL_VIEWS,
-  initialScheduledEvents = [],
-  initialUnscheduledEvents = [],
   onEventMove,
   onEventResize,
   onEventCreate,
@@ -1632,67 +1951,45 @@ function Calendar({
   onDateClick,
   readOnly = false,
   mapFromEvent,
+  AddEventButton,
+  CreateEventModal,
+  EventActionButton,
+  EventDetailModal,
+  previousDayButtonContent,
+  nextDayButtonContent,
+  previousWeekButtonContent,
+  nextWeekButtonContent,
+  previousMonthButtonContent,
+  nextMonthButtonContent,
+  previousYearButtonContent,
+  nextYearButtonContent,
   className,
-  style
+  style,
+  viewSwitcherClassName,
+  viewSwitcherButtonClassName
 }) {
-  var _a;
-  const [zoomLevel, setZoomLevel] = useState7(
-    () => views.length > 0 ? views[0] : "week"
-  );
-  const effectiveZoom = views.includes(zoomLevel) ? zoomLevel : (_a = views[0]) != null ? _a : "week";
-  const [scheduledEvents, setScheduledEvents] = useState7(
-    initialScheduledEvents
-  );
-  const [unscheduledEvents, setUnscheduledEvents] = useState7(
-    initialUnscheduledEvents
-  );
-  const [startDate, setStartDate] = useState7(dayjs10().startOf("week"));
-  const getWeekDaysWithDates = () => {
-    return Array.from({ length: 7 }).map((_, index) => {
-      const date2 = startDate.clone().add(index, "days");
-      return { dayIndex: index, date: date2.format("YYYY-MM-DD") };
-    });
-  };
-  const handleDragEnd = async (event) => {
-    var _a2;
-    const { active, over } = event;
-    if (!over) return;
-    const draggedEvent = scheduledEvents.find((ev) => ev.id === active.id);
-    if (!draggedEvent) return;
-    const dropDateIndex = (_a2 = over.data.current) == null ? void 0 : _a2.index;
-    if (dropDateIndex === void 0) return;
-    const oldStart = dayjs10(draggedEvent.start);
-    const oldEnd = dayjs10(draggedEvent.end);
-    const newStart = startDate.clone().add(dropDateIndex, "days");
-    const newEnd = newStart.clone().add(1, "days");
-    const prevScheduled = [...scheduledEvents];
-    const prevUnscheduled = [...unscheduledEvents];
-    setScheduledEvents((prev) => [
-      ...prev.filter((ev) => ev.id !== draggedEvent.id),
-      __spreadProps(__spreadValues({}, draggedEvent), {
-        start: dayjs10(newStart.format("YYYY-MM-DD")),
-        end: dayjs10(newEnd.format("YYYY-MM-DD"))
-      })
-    ]);
-    setUnscheduledEvents((prev) => prev.filter((ev) => ev.id !== draggedEvent.id));
-    try {
-      if (onEventMove) {
-        await onEventMove({
-          id: draggedEvent.id,
-          start: newStart,
-          end: newEnd,
-          oldStart,
-          oldEnd,
-          view: effectiveZoom
-        });
-      }
-    } catch (e) {
-      setScheduledEvents(prevScheduled);
-      setUnscheduledEvents(prevUnscheduled);
+  const { orderedViews, setZoomLevel, effectiveZoom } = useCalendarViews(views);
+  const [scheduledEvents, setScheduledEvents] = useState8(
+    () => {
+      var _a;
+      return (_a = defaultScheduledEvents != null ? defaultScheduledEvents : defaultEvents) != null ? _a : [];
     }
-  };
+  );
+  const [unscheduledEvents, setUnscheduledEvents] = useState8(
+    () => defaultUnscheduledEvents != null ? defaultUnscheduledEvents : []
+  );
+  const [startDate, setStartDate] = useState8(dayjs12().startOf("week"));
+  const handleDragEnd = useCalendarDragEnd(
+    startDate,
+    scheduledEvents,
+    unscheduledEvents,
+    setScheduledEvents,
+    setUnscheduledEvents,
+    onEventMove,
+    effectiveZoom
+  );
   const zoomLevelView = {
-    day: /* @__PURE__ */ jsx13(
+    day: /* @__PURE__ */ jsx15(
       DayView,
       {
         startDate: startDate.startOf("day"),
@@ -1706,12 +2003,17 @@ function Calendar({
         onEventCreate,
         onEventClick,
         onDateClick,
-        view: "day",
         readOnly,
-        mapFromEvent
+        mapFromEvent,
+        AddEventButton,
+        CreateEventModal,
+        EventActionButton,
+        EventDetailModal,
+        previousDayButtonContent,
+        nextDayButtonContent
       }
     ),
-    week: /* @__PURE__ */ jsx13(
+    week: /* @__PURE__ */ jsx15(
       WeekView,
       {
         startDate,
@@ -1720,18 +2022,22 @@ function Calendar({
         unscheduledEvents,
         setScheduledEvents,
         setUnscheduledEvents,
-        getWeekDaysWithDates,
         onEventMove,
         onEventResize,
         onEventCreate,
         onEventClick,
         onDateClick,
-        view: "week",
         readOnly,
-        mapFromEvent
+        mapFromEvent,
+        AddEventButton,
+        CreateEventModal,
+        EventActionButton,
+        EventDetailModal,
+        previousWeekButtonContent,
+        nextWeekButtonContent
       }
     ),
-    month: /* @__PURE__ */ jsx13(
+    month: /* @__PURE__ */ jsx15(
       MonthView,
       {
         setStartDate,
@@ -1740,12 +2046,15 @@ function Calendar({
         setZoomLevel,
         onEventClick,
         onDateClick,
-        view: "month",
         readOnly,
-        mapFromEvent
+        mapFromEvent,
+        AddEventButton,
+        CreateEventModal,
+        previousMonthButtonContent,
+        nextMonthButtonContent
       }
     ),
-    year: /* @__PURE__ */ jsx13(
+    year: /* @__PURE__ */ jsx15(
       YearView,
       {
         setStartDate,
@@ -1754,22 +2063,30 @@ function Calendar({
         setZoomLevel,
         onEventClick,
         onDateClick,
-        view: "year",
         readOnly,
-        mapFromEvent
+        mapFromEvent,
+        AddEventButton,
+        CreateEventModal,
+        previousYearButtonContent,
+        nextYearButtonContent
       }
     )
   };
-  return /* @__PURE__ */ jsx13(DndContext2, { onDragEnd: handleDragEnd, children: /* @__PURE__ */ jsxs8("div", { "data-slot": "calendar-root", className, style, children: [
-    showSwitcher && views.length > 0 && /* @__PURE__ */ jsx13("div", { "data-slot": "calendar-view-switcher", children: /* @__PURE__ */ jsx13(
+  return /* @__PURE__ */ jsx15(DndContext2, { onDragEnd: handleDragEnd, children: /* @__PURE__ */ jsxs9("div", { "data-slot": "calendar-root", className, style, children: [
+    showSwitcher && orderedViews.length > 0 && /* @__PURE__ */ jsx15("div", { "data-slot": "calendar-view-switcher", children: /* @__PURE__ */ jsx15(
       SegmentedControl,
       {
         value: effectiveZoom,
-        options: views.map((v) => ({ label: VIEW_LABELS[v], value: v })),
-        onChange: (value) => setZoomLevel(value)
+        options: orderedViews.map((v) => ({
+          label: VIEW_LABELS[v],
+          value: v
+        })),
+        onChange: (value) => setZoomLevel(value),
+        className: viewSwitcherClassName,
+        buttonClassName: viewSwitcherButtonClassName
       }
     ) }),
-    /* @__PURE__ */ jsx13("div", { "data-slot": "calendar-content", "data-view": effectiveZoom, children: zoomLevelView[effectiveZoom] })
+    /* @__PURE__ */ jsx15("div", { "data-slot": "calendar-content", "data-view": effectiveZoom, children: zoomLevelView[effectiveZoom] })
   ] }) });
 }
 
@@ -1830,13 +2147,13 @@ function mapEventToTask(event) {
 }
 
 // src/components/ui/Card.tsx
-import { jsx as jsx14 } from "react/jsx-runtime";
+import { jsx as jsx16 } from "react/jsx-runtime";
 var Card = ({ children, className }) => {
-  return /* @__PURE__ */ jsx14("div", { "data-slot": "card", className, children });
+  return /* @__PURE__ */ jsx16("div", { "data-slot": "card", className, children });
 };
 
 // src/components/ui/Tabs.tsx
-import { jsx as jsx15, jsxs as jsxs9 } from "react/jsx-runtime";
+import { jsx as jsx17, jsxs as jsxs10 } from "react/jsx-runtime";
 var Tabs = ({
   activeKey,
   onChange,
@@ -1844,8 +2161,8 @@ var Tabs = ({
   items
 }) => {
   var _a;
-  return /* @__PURE__ */ jsxs9("div", { "data-slot": "tabs", className, children: [
-    /* @__PURE__ */ jsx15("div", { "data-slot": "tabs-list", children: items.map((item) => /* @__PURE__ */ jsx15(
+  return /* @__PURE__ */ jsxs10("div", { "data-slot": "tabs", className, children: [
+    /* @__PURE__ */ jsx17("div", { "data-slot": "tabs-list", children: items.map((item) => /* @__PURE__ */ jsx17(
       "button",
       {
         type: "button",
@@ -1858,76 +2175,118 @@ var Tabs = ({
       },
       item.key
     )) }),
-    /* @__PURE__ */ jsx15("div", { "data-slot": "tabs-content", children: (_a = items.find((item) => item.key === activeKey)) == null ? void 0 : _a.children })
+    /* @__PURE__ */ jsx17("div", { "data-slot": "tabs-content", children: (_a = items.find((item) => item.key === activeKey)) == null ? void 0 : _a.children })
   ] });
 };
 
 // src/demo/CalendarContainer.tsx
-import { useState as useState8 } from "react";
-import { jsx as jsx16 } from "react/jsx-runtime";
+import { useState as useState9 } from "react";
+import { jsx as jsx18 } from "react/jsx-runtime";
 var ALL_VIEWS2 = ["day", "week", "month", "year"];
 function CalendarContainer({
   showSwitcher,
   showTabs = true,
   views = ALL_VIEWS2,
   areas = [],
-  initialScheduledEvents = [],
-  initialUnscheduledEvents = [],
+  defaultScheduledEvents = [],
+  defaultUnscheduledEvents = [],
   onEventMove,
   onEventResize,
   onEventCreate,
   onEventClick,
   onDateClick,
   readOnly = false,
-  mapFromEvent
+  mapFromEvent,
+  AddEventButton,
+  CreateEventModal,
+  EventActionButton,
+  EventDetailModal,
+  previousDayButtonContent,
+  nextDayButtonContent,
+  previousWeekButtonContent,
+  nextWeekButtonContent,
+  previousMonthButtonContent,
+  nextMonthButtonContent,
+  previousYearButtonContent,
+  nextYearButtonContent,
+  viewSwitcherClassName,
+  viewSwitcherButtonClassName
 }) {
   const effectiveAreas = areas.length > 0 ? areas : [{ id: "", name: "Calendar" }];
-  const [activeTab, setActiveTab] = useState8(
+  const [activeTab, setActiveTab] = useState9(
     () => {
       var _a, _b;
       return (_b = (_a = effectiveAreas[0]) == null ? void 0 : _a.id) != null ? _b : "";
     }
   );
   if (!showTabs || effectiveAreas.length <= 1) {
-    return /* @__PURE__ */ jsx16("div", { "data-slot": "calendar-container", children: /* @__PURE__ */ jsx16(Card, { children: /* @__PURE__ */ jsx16(
+    return /* @__PURE__ */ jsx18("div", { "data-slot": "calendar-container", children: /* @__PURE__ */ jsx18(Card, { children: /* @__PURE__ */ jsx18(
       Calendar,
       {
         showSwitcher,
         views,
-        initialScheduledEvents,
-        initialUnscheduledEvents,
+        defaultScheduledEvents,
+        defaultUnscheduledEvents,
         onEventMove,
         onEventResize,
         onEventCreate,
         onEventClick,
         onDateClick,
         readOnly,
-        mapFromEvent
+        mapFromEvent,
+        AddEventButton,
+        CreateEventModal,
+        EventActionButton,
+        EventDetailModal,
+        previousDayButtonContent,
+        nextDayButtonContent,
+        previousWeekButtonContent,
+        nextWeekButtonContent,
+        previousMonthButtonContent,
+        nextMonthButtonContent,
+        previousYearButtonContent,
+        nextYearButtonContent,
+        viewSwitcherClassName,
+        viewSwitcherButtonClassName
       }
     ) }) });
   }
-  return /* @__PURE__ */ jsx16("div", { "data-slot": "calendar-container", "data-tabs": true, children: /* @__PURE__ */ jsx16(
+  return /* @__PURE__ */ jsx18("div", { "data-slot": "calendar-container", "data-tabs": true, children: /* @__PURE__ */ jsx18(
     Tabs,
     {
       activeKey: activeTab,
       onChange: setActiveTab,
       items: effectiveAreas.map((area) => ({
         key: area.id,
-        label: /* @__PURE__ */ jsx16("span", { "data-slot": "tab-label", "data-area-id": area.id, children: area.name }),
-        children: /* @__PURE__ */ jsx16(Card, { children: /* @__PURE__ */ jsx16(
+        label: /* @__PURE__ */ jsx18("span", { "data-slot": "tab-label", "data-area-id": area.id, children: area.name }),
+        children: /* @__PURE__ */ jsx18(Card, { children: /* @__PURE__ */ jsx18(
           Calendar,
           {
             showSwitcher,
             views,
-            initialScheduledEvents,
-            initialUnscheduledEvents,
+            defaultScheduledEvents,
+            defaultUnscheduledEvents,
             onEventMove,
             onEventResize,
             onEventCreate,
             onEventClick,
             onDateClick,
             readOnly,
-            mapFromEvent
+            mapFromEvent,
+            AddEventButton,
+            CreateEventModal,
+            EventActionButton,
+            EventDetailModal,
+            previousDayButtonContent,
+            nextDayButtonContent,
+            previousWeekButtonContent,
+            nextWeekButtonContent,
+            previousMonthButtonContent,
+            nextMonthButtonContent,
+            previousYearButtonContent,
+            nextYearButtonContent,
+            viewSwitcherClassName,
+            viewSwitcherButtonClassName
           }
         ) })
       }))
