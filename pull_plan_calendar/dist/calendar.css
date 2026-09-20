@@ -102,6 +102,11 @@
   border: 1px solid #f3f4f6;
 }
 
+[data-slot="week-day-cell"][data-drop-hover] {
+  background: color-mix(in srgb, var(--drop-preview-color, #2563eb) 12%, white);
+  border-color: var(--drop-preview-color, #2563eb);
+}
+
 [data-slot="week-day-cell"] span:last-child {
   font-size: 1.125rem;
   font-weight: 600;
@@ -129,8 +134,9 @@
   opacity: 0.9;
 }
 
-[data-slot="week-view-grid"] [data-slot="event"] button:hover {
-  opacity: 1;
+[data-slot="week-view-grid"] [data-slot="event"][data-dragging],
+[data-slot="day-view-grid"] [data-slot="event"][data-moving] {
+  touch-action: none;
 }
 
 /* Unscheduled list */
@@ -174,7 +180,14 @@
   border-radius: 9999px;
   color: white;
   background: var(--event-color, #237591);
-  cursor: pointer;
+  cursor: grab;
+  user-select: none;
+}
+
+[data-slot="unscheduled-event"][data-dragging] {
+  opacity: 0.4;
+  cursor: grabbing;
+  touch-action: none;
 }
 
 [data-slot="unscheduled-event"]:hover {
@@ -268,6 +281,16 @@
   text-align: right;
 }
 
+[data-slot="day-hour-outside-workday"] {
+  border-top: 1px solid #f3f4f6;
+  padding: 0.125rem 0.5rem 0 0;
+  font-size: 0.75rem;
+  color: #9ca3af;
+  text-align: right;
+  background: var(--day-outside-workday-bg, #f9fafb);
+  opacity: 0.75;
+}
+
 [data-slot="day-events"] {
   padding: 0;
   display: block;
@@ -275,6 +298,27 @@
 
 [data-slot="day-now-line"] {
   transition: top 60s linear;
+}
+
+[data-slot="day-drop-preview"] {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 0;
+  border-top: 2px dashed var(--drop-preview-color, #2563eb);
+  pointer-events: none;
+  z-index: 3;
+}
+
+[data-slot="day-drop-preview-event"] {
+  pointer-events: none;
+  z-index: 3;
+}
+
+[data-slot="day-view-grid"] [data-slot="event"][data-moving] {
+  cursor: grabbing;
+  z-index: 4;
+  opacity: 0.9;
 }
 
 [data-slot="day-no-events"] {
@@ -413,6 +457,77 @@
 [data-slot="week-more"] {
   font-size: 0.875rem;
   color: #b1724b;
+}
+
+[data-slot="week-day-events"] {
+  display: flex;
+  flex-direction: column;
+  gap: 0.125rem;
+  margin-top: 0.25rem;
+  min-width: 0;
+}
+
+[data-slot="week-day-events"] [data-slot="event"] {
+  padding: 0.125rem 0.25rem;
+  border-radius: 0.25rem;
+  font-size: 0.65rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+[data-slot="day-more-wrap"] {
+  position: relative;
+}
+
+[data-slot="day-more"] {
+  display: block;
+  width: 100%;
+  border: none;
+  background: transparent;
+  padding: 0.125rem 0.25rem;
+  font-size: 0.65rem;
+  color: #6b7280;
+  cursor: pointer;
+  text-align: left;
+}
+
+[data-slot="day-more"]:hover {
+  color: #b1724b;
+}
+
+[data-slot="day-more-popover"] {
+  position: absolute;
+  z-index: 20;
+  left: 0;
+  right: 0;
+  top: 100%;
+  margin-top: 0.125rem;
+  padding: 0.25rem;
+  background: #fff;
+  border: 1px solid #e5e7eb;
+  border-radius: 0.375rem;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.12);
+  display: flex;
+  flex-direction: column;
+  gap: 0.125rem;
+  max-height: 12rem;
+  overflow-y: auto;
+}
+
+[data-slot="day-more-item"] {
+  display: block;
+  width: 100%;
+  border: none;
+  border-radius: 0.25rem;
+  padding: 0.25rem 0.375rem;
+  font-size: 0.7rem;
+  text-align: left;
+  cursor: pointer;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 /* Year view months grid */

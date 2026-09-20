@@ -4,6 +4,8 @@ import { useDraggable } from "@dnd-kit/core";
 import { useMemo } from "react";
 import type { CalendarEvent } from "../types/calendar";
 import type { WeekEventPlacement } from "../utils/weekViewLayout";
+import { formatEventTimeLabel } from "../utils/eventDisplay";
+import { RESIZE_HANDLE_WIDTH_PX } from "../utils/pointerDrag";
 import { EventActionButtonSlot } from "./EventActionButtonSlot";
 
 const ROW_HEIGHT = 50;
@@ -15,10 +17,9 @@ export interface WeekEventCardProps {
   readOnly: boolean;
   onOpen: () => void;
   dragDeltaX: number | null;
-  onResizeStart: (
-    eventId: string,
-    handle: "left" | "right",
-    startX: number,
+  onResizePointerDown: (
+    event: React.PointerEvent,
+    payload: { eventId: string; handle: "left" | "right" },
   ) => void;
   EventActionButton?: React.ComponentType<{
     event: CalendarEvent;
@@ -33,7 +34,7 @@ export function WeekEventCard({
   readOnly,
   onOpen,
   dragDeltaX,
-  onResizeStart,
+  onResizePointerDown,
   EventActionButton,
 }: WeekEventCardProps) {
   const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
@@ -56,9 +57,10 @@ export function WeekEventCard({
       display: "flex",
       alignItems: "center",
       justifyContent: "space-between",
-      padding: "0 4px",
+      padding: `0 ${RESIZE_HANDLE_WIDTH_PX}px`,
       cursor: readOnly ? "default" : "grab",
       zIndex: isDragging ? 1 : 0,
+      userSelect: "none",
     }),
     [
       placement.leftPx,
@@ -71,12 +73,19 @@ export function WeekEventCard({
     ],
   );
 
+  const timeLabel = formatEventTimeLabel(event);
+
+  const stopDragSensors = (e: React.SyntheticEvent) => {
+    e.stopPropagation();
+  };
+
   return (
     <div
       ref={setNodeRef}
       data-slot="event"
       data-event-id={event.id}
       data-color={event.color ?? undefined}
+      data-dragging={isDragging ? "" : undefined}
       style={style}
       {...(readOnly ? {} : { ...attributes, ...listeners })}
     >
@@ -88,14 +97,16 @@ export function WeekEventCard({
             aria-label="Resize start"
             onPointerDown={(e) => {
               e.stopPropagation();
-              onResizeStart(event.id, "left", e.clientX);
+              onResizePointerDown(e, { eventId: event.id, handle: "left" });
             }}
+            onMouseDown={stopDragSensors}
+            onTouchStart={stopDragSensors}
             style={{
               position: "absolute",
               left: 0,
               top: 0,
               bottom: 0,
-              width: 8,
+              width: RESIZE_HANDLE_WIDTH_PX,
               cursor: "ew-resize",
             }}
           />
@@ -105,14 +116,16 @@ export function WeekEventCard({
             aria-label="Resize end"
             onPointerDown={(e) => {
               e.stopPropagation();
-              onResizeStart(event.id, "right", e.clientX);
+              onResizePointerDown(e, { eventId: event.id, handle: "right" });
             }}
+            onMouseDown={stopDragSensors}
+            onTouchStart={stopDragSensors}
             style={{
               position: "absolute",
               right: 0,
               top: 0,
               bottom: 0,
-              width: 8,
+              width: RESIZE_HANDLE_WIDTH_PX,
               cursor: "ew-resize",
             }}
           />
@@ -126,6 +139,7 @@ export function WeekEventCard({
           flex: 1,
         }}
       >
+        {timeLabel ? <span data-slot="event-time">{timeLabel} </span> : null}
         {event.title}
       </span>
       <EventActionButtonSlot

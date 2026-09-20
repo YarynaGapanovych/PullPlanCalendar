@@ -2,38 +2,48 @@
 
 import dayjs, { type Dayjs } from "dayjs";
 import { useMemo, useState } from "react";
-import type { CalendarEvent, CalendarViewMode } from "../types/calendar";
+import { useCreateEventSubmit } from "../hooks/useCreateEventSubmit";
+import type {
+  CalendarEvent,
+  CalendarEventCreatePayload,
+  CalendarViewMode,
+} from "../types/calendar";
 import type { Task } from "../types/task";
-import "../utils/calendarHelpers";
-import { getEventsForYear } from "../utils/calendarHelpers";
+import {
+  generateCalendarWeeks,
+  getEventsForYear,
+  getWeekdayLabels,
+  type WeekStartsOn,
+} from "../utils/calendarHelpers";
 import type { CreateTaskModalProps } from "./tasks/CreateTaskModal";
 import { CreateTaskModal } from "./tasks/CreateTaskModal";
+import type { TaskModalProps } from "./tasks/TaskModal";
 import { Button } from "./ui/Button";
 import { Title } from "./ui/Title";
+import { Tooltip } from "./ui/Tooltip";
 import { Week } from "./Week";
 
 export interface YearViewProps {
   events: CalendarEvent[];
   setEvents: React.Dispatch<React.SetStateAction<CalendarEvent[]>>;
   setStartDate: (date: Dayjs) => void;
-  setZoomLevel: (zoom: "year" | "week") => void;
+  setZoomLevel: (zoom: CalendarViewMode) => void;
   onEventClick?: (event: CalendarEvent) => Promise<void>;
   onDateClick?: (date: Dayjs, view: CalendarViewMode) => Promise<void>;
+  onEventCreate?: (payload: CalendarEventCreatePayload) => Promise<void>;
   readOnly?: boolean;
   updateTask?: (options?: {
     variables?: { data: Record<string, unknown> };
     onError?: (error: Error) => void;
   }) => Promise<unknown>;
-  /** Optional: map event → task to show TaskModal (e.g. mapEventToTask). */
   mapFromEvent?: (event: CalendarEvent) => Task;
-  /** Custom "add event" button; receives onClick. If not set, no add button is shown in year view. */
   AddEventButton?: React.ComponentType<{ onClick: () => void }>;
-  /** Custom create-event modal. If not set, default CreateTaskModal is used. */
   CreateEventModal?: React.ComponentType<CreateTaskModalProps>;
-  /** Content for the "previous year" nav button. Default: ← */
+  EventDetailModal?: React.ComponentType<TaskModalProps>;
   previousYearButtonContent?: React.ReactNode;
-  /** Content for the "next year" nav button. Default: → */
   nextYearButtonContent?: React.ReactNode;
+  weekStartsOn?: WeekStartsOn;
+  maxEventsPerDay?: number;
   className?: string;
   style?: React.CSSProperties;
 }
@@ -45,13 +55,17 @@ export default function YearView({
   setZoomLevel,
   onEventClick,
   onDateClick,
+  onEventCreate,
   readOnly = false,
   updateTask = async () => {},
   mapFromEvent,
   AddEventButton,
   CreateEventModal,
+  EventDetailModal,
   previousYearButtonContent = "←",
   nextYearButtonContent = "→",
+  weekStartsOn = 0,
+  maxEventsPerDay = 3,
   className,
   style,
 }: YearViewProps) {
@@ -64,28 +78,27 @@ export default function YearView({
     setIsModalOpen(true);
   };
 
-  const generateCalendarData = () => {
-    const year = dayjs().year();
-    const startDate = dayjs(`${year}-01-01`);
-    const weeks: Dayjs[][] = [];
-    let currentWeek: Dayjs[] = [];
-    let currentDate = startDate.clone();
-
-    while (currentDate.year() === year) {
-      currentWeek.push(currentDate.clone());
-      if (currentDate.day() === 6) {
-        weeks.push(currentWeek);
-        currentWeek = [];
-      }
-      currentDate = currentDate.add(1, "day");
-    }
-    if (currentWeek.length) {
-      weeks.push(currentWeek);
-    }
-    return weeks;
+  const closeModal = () => {
+    setIsModalOpen(false);
+    setSelectedDate(null);
   };
 
-  const calendarData = useMemo(() => generateCalendarData(), []);
+  const handleCreateSubmit = useCreateEventSubmit(
+    events,
+    setEvents,
+    onEventCreate,
+    closeModal,
+  );
+
+  const calendarData = useMemo(
+    () => generateCalendarWeeks(currentYear, weekStartsOn),
+    [currentYear, weekStartsOn],
+  );
+
+  const weekdayLabels = useMemo(
+    () => getWeekdayLabels(weekStartsOn),
+    [weekStartsOn],
+  );
 
   const getEventsForWeekInYear = (week: Dayjs[]) =>
     getEventsForYear(week, events, currentYear);
@@ -97,6 +110,10 @@ export default function YearView({
   const handleNextYear = () => {
     setCurrentYear((prev) => prev + 1);
   };
+
+  const createInitialStart =
+    selectedDate?.startOf("day") ?? dayjs().startOf("day");
+  const createInitialEnd = createInitialStart.add(1, "day");
 
   return (
     <div data-slot="year-view" className={className} style={style}>
@@ -112,9 +129,20 @@ export default function YearView({
         <Button type="button" onClick={handleNextYear} aria-label="Next year">
           {nextYearButtonContent}
         </Button>
-        {!readOnly && AddEventButton && (
-          <AddEventButton onClick={() => openModalWithDate(dayjs())} />
-        )}
+        {!readOnly &&
+          (AddEventButton ? (
+            <AddEventButton onClick={() => openModalWithDate(dayjs())} />
+          ) : (
+            <Tooltip title="Add new event">
+              <Button
+                type="button"
+                onClick={() => openModalWithDate(dayjs())}
+                aria-label="Add event"
+              >
+                +
+              </Button>
+            </Tooltip>
+          ))}
       </div>
       <div data-slot="year-view-months">
         {[...Array(12)].map((_, monthIndex) => (
@@ -123,7 +151,7 @@ export default function YearView({
               {dayjs(`${currentYear}-${monthIndex + 1}-01`).format("MMMM")}
             </Title>
             <div data-slot="year-month-weekdays">
-              {["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map((day) => (
+              {weekdayLabels.map((day) => (
                 <div key={day} data-slot="year-weekday">
                   {day}
                 </div>
@@ -142,7 +170,6 @@ export default function YearView({
                       onClick={() => {
                         setStartDate(week[0]);
                         setZoomLevel("week");
-                        openModalWithDate(week[0]);
                       }}
                       aria-label="Go to week"
                     >
@@ -159,6 +186,9 @@ export default function YearView({
                       onDateClick={onDateClick}
                       updateTask={updateTask}
                       mapFromEvent={mapFromEvent}
+                      EventDetailModal={EventDetailModal}
+                      weekStartsOn={weekStartsOn}
+                      maxEventsPerDay={maxEventsPerDay}
                     />
                   </div>
                 ))}
@@ -169,12 +199,18 @@ export default function YearView({
       {CreateEventModal ? (
         <CreateEventModal
           isOpen={isModalOpen}
-          onClose={() => setIsModalOpen(false)}
+          onClose={closeModal}
+          onSubmit={handleCreateSubmit}
+          initialStartDate={createInitialStart}
+          initialEndDate={createInitialEnd}
         />
       ) : (
         <CreateTaskModal
           isOpen={isModalOpen}
-          onClose={() => setIsModalOpen(false)}
+          onClose={closeModal}
+          onSubmit={handleCreateSubmit}
+          initialStartDate={createInitialStart}
+          initialEndDate={createInitialEnd}
         />
       )}
     </div>

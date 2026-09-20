@@ -2,7 +2,8 @@
 
 import {
   DndContext,
-  PointerSensor,
+  MouseSensor,
+  TouchSensor,
   useSensor,
   useSensors,
   type DragEndEvent,
@@ -11,11 +12,13 @@ import {
 import dayjs from "dayjs";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useCreateEventSubmit } from "../hooks/useCreateEventSubmit";
+import { useDelayedPointerDrag } from "../hooks/useDelayedPointerDrag";
 import type {
   CalendarEvent,
   CalendarEventCreatePayload,
   CalendarEventMovePayload,
   CalendarEventResizePayload,
+  CalendarLabels,
   CalendarViewMode,
 } from "../types/calendar";
 import type { Task } from "../types/task";
@@ -24,10 +27,19 @@ import {
   getOverlapRowAssignments,
   pixelDeltaToDayDelta,
 } from "../utils/weekViewLayout";
+import { getEventChipStyle } from "../utils/eventDisplay";
+import {
+  POINTER_DRAG_DELAY_MS,
+  POINTER_DRAG_MOUSE_DISTANCE_PX,
+  POINTER_DRAG_TOLERANCE_PX,
+  isTouchLikePointer,
+  pointInRect,
+} from "../utils/pointerDrag";
 import type { CreateTaskModalProps } from "./tasks/CreateTaskModal";
 import { CreateTaskModal } from "./tasks/CreateTaskModal";
 import type { TaskModalProps } from "./tasks/TaskModal";
 import { TaskModal } from "./tasks/TaskModal";
+import { PointerDragGhost } from "./PointerDragGhost";
 import { WeekEventCard } from "./WeekEventCard";
 import { Button } from "./ui/Button";
 import { Title } from "./ui/Title";
@@ -69,6 +81,14 @@ export interface WeekViewProps {
   previousWeekButtonContent?: React.ReactNode;
   /** Content for the "next week" nav button. Default: → */
   nextWeekButtonContent?: React.ReactNode;
+  /** Content for the "Today" nav button. Default: Today */
+  todayButtonContent?: React.ReactNode;
+  /** Class name for the "Today" nav button. */
+  todayButtonClassName?: string;
+  /** Inline style for the "Today" nav button. */
+  todayButtonStyle?: React.CSSProperties;
+  /** Editable copy for unscheduled list title/hint. */
+  labels?: CalendarLabels;
   className?: string;
   style?: React.CSSProperties;
 }
@@ -84,7 +104,6 @@ export default function WeekView({
   onEventResize,
   onEventCreate,
   onEventClick,
-  onDateClick,
   readOnly = false,
   updateTask = async () => {},
   mapFromEvent,
@@ -94,6 +113,10 @@ export default function WeekView({
   EventDetailModal,
   previousWeekButtonContent = "←",
   nextWeekButtonContent = "→",
+  todayButtonContent = "Today",
+  todayButtonClassName,
+  todayButtonStyle,
+  labels,
   className,
   style,
 }: WeekViewProps) {
@@ -112,7 +135,9 @@ export default function WeekView({
     leftDeltaDays: number;
     rightDeltaDays: number;
   } | null>(null);
-  const [resizing, setResizing] = useState<{
+  const resizePreviewRef = useRef({ leftDeltaDays: 0, rightDeltaDays: 0 });
+  const lastClampedDeltaRef = useRef<{ id: string; x: number } | null>(null);
+  const resizingRef = useRef<{
     eventId: string;
     handle: "left" | "right";
     startX: number;
@@ -120,8 +145,13 @@ export default function WeekView({
     durationDays: number;
     columnWidth: number;
   } | null>(null);
-  const resizePreviewRef = useRef({ leftDeltaDays: 0, rightDeltaDays: 0 });
-  const lastClampedDeltaRef = useRef<{ id: string; x: number } | null>(null);
+  const [draggingUnscheduled, setDraggingUnscheduled] =
+    useState<CalendarEvent | null>(null);
+  const [dragPointer, setDragPointer] = useState<{
+    x: number;
+    y: number;
+  } | null>(null);
+  const [dropDayIndex, setDropDayIndex] = useState<number | null>(null);
 
   useEffect(() => {
     const el = containerRef.current;
@@ -140,14 +170,7 @@ export default function WeekView({
     setIsTaskOpen(false);
     setSelectedEvent(null);
   };
-  const openCreateTask = async () => {
-    if (onDateClick) {
-      try {
-        await onDateClick(startDate, "week");
-      } catch {
-        return;
-      }
-    }
+  const openCreateTask = () => {
     setIsCreateTaskOpen(true);
   };
   const closeCreateTask = () => setIsCreateTaskOpen(false);
@@ -186,8 +209,20 @@ export default function WeekView({
     setStartDate(startDate.add(1, "week"));
   }, [startDate, setStartDate]);
 
+  const handleToday = useCallback(() => {
+    setStartDate(dayjs());
+  }, [setStartDate]);
+
   const sensors = useSensors(
-    useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
+    useSensor(MouseSensor, {
+      activationConstraint: { distance: POINTER_DRAG_MOUSE_DISTANCE_PX },
+    }),
+    useSensor(TouchSensor, {
+      activationConstraint: {
+        delay: POINTER_DRAG_DELAY_MS,
+        tolerance: POINTER_DRAG_TOLERANCE_PX,
+      },
+    }),
   );
 
   const handleDragMove = useCallback(
@@ -319,41 +354,58 @@ export default function WeekView({
     ],
   );
 
-  const onResizeStart = useCallback(
-    (eventId: string, handle: "left" | "right", startX: number) => {
-      if (readOnly) return;
-      const evt = scheduledEvents.find((e) => e.id === eventId);
+  const dropDayFromPointer = useCallback(
+    (clientX: number, clientY: number) => {
+      const calendar = containerRef.current;
+      if (!calendar) return null;
+      const rect = calendar.getBoundingClientRect();
+      if (!pointInRect(clientX, clientY, rect)) return null;
+      const columnWidth = rect.width / 7;
+      if (columnWidth <= 0) return 0;
+      return Math.max(
+        0,
+        Math.min(6, Math.floor((clientX - rect.left) / columnWidth)),
+      );
+    },
+    [],
+  );
+
+  const { onPointerDown: onResizePointerDown } = useDelayedPointerDrag<{
+    eventId: string;
+    handle: "left" | "right";
+  }>({
+    disabled: readOnly,
+    onDragStart: ({ eventId, handle }, e) => {
+      const evt = scheduledEvents.find((item) => item.id === eventId);
       if (!evt) return;
       const placement = getEventPlacement(evt, startDate, containerWidth);
       if (!placement) return;
-      setResizing({
+      resizingRef.current = {
         eventId,
         handle,
-        startX,
+        startX: e.clientX,
         startOffsetDays: placement.startOffsetDays,
         durationDays: placement.durationDays,
         columnWidth: placement.columnWidth,
-      });
+      };
+      resizePreviewRef.current = { leftDeltaDays: 0, rightDeltaDays: 0 };
       setResizePreview({
         eventId,
         leftDeltaDays: 0,
         rightDeltaDays: 0,
       });
     },
-    [readOnly, scheduledEvents, startDate, containerWidth],
-  );
-
-  useEffect(() => {
-    if (!resizing) return;
-    const {
-      eventId,
-      handle,
-      startX,
-      startOffsetDays,
-      durationDays,
-      columnWidth,
-    } = resizing;
-    const onMove = (e: PointerEvent) => {
+    onDragMove: (_payload, e) => {
+      const session = resizingRef.current;
+      if (!session) return;
+      const {
+        eventId,
+        handle,
+        startX,
+        startOffsetDays,
+        durationDays,
+        columnWidth,
+      } = session;
       const deltaX = e.clientX - startX;
       const dayDelta = pixelDeltaToDayDelta(deltaX, columnWidth);
       if (handle === "left") {
@@ -379,12 +431,15 @@ export default function WeekView({
           rightDeltaDays,
         });
       }
-    };
-    const onUp = () => {
+    },
+    onDragEnd: () => {
+      const session = resizingRef.current;
       const current = resizePreviewRef.current;
-      setResizing(null);
       setResizePreview(null);
-      const evt = scheduledEvents.find((e) => e.id === eventId);
+      resizingRef.current = null;
+      if (!session) return;
+      const { eventId, handle, startOffsetDays, durationDays } = session;
+      const evt = scheduledEvents.find((item) => item.id === eventId);
       if (!evt) return;
       const newStartOffsetDays = startOffsetDays + current.leftDeltaDays;
       const newDurationDays =
@@ -403,10 +458,10 @@ export default function WeekView({
       };
       const prevScheduled = [...scheduledEvents];
       setScheduledEvents((prev) =>
-        prev.map((e) => (e.id === eventId ? updatedEvent : e)),
+        prev.map((item) => (item.id === eventId ? updatedEvent : item)),
       );
       if (onEventResize) {
-        (async () => {
+        void (async () => {
           try {
             await onEventResize({
               id: eventId,
@@ -421,14 +476,12 @@ export default function WeekView({
           }
         })();
       }
-    };
-    window.addEventListener("pointermove", onMove, { capture: true });
-    window.addEventListener("pointerup", onUp, { capture: true });
-    return () => {
-      window.removeEventListener("pointermove", onMove, { capture: true });
-      window.removeEventListener("pointerup", onUp, { capture: true });
-    };
-  }, [resizing, scheduledEvents, startDate, setScheduledEvents, onEventResize]);
+    },
+    onDragCancel: () => {
+      resizingRef.current = null;
+      setResizePreview(null);
+    },
+  });
 
   const handleUnassignedEventDrop = useCallback(
     (event: CalendarEvent, dayIndex: number) => {
@@ -473,11 +526,44 @@ export default function WeekView({
     ],
   );
 
+  const { onPointerDown: onUnscheduledPointerDown } =
+    useDelayedPointerDrag<CalendarEvent>({
+      disabled: readOnly,
+      onDragStart: (event, e) => {
+        setDraggingUnscheduled(event);
+        setDragPointer({ x: e.clientX, y: e.clientY });
+        setDropDayIndex(dropDayFromPointer(e.clientX, e.clientY));
+      },
+      onDragMove: (_event, e) => {
+        setDragPointer({ x: e.clientX, y: e.clientY });
+        setDropDayIndex(dropDayFromPointer(e.clientX, e.clientY));
+      },
+      onDragEnd: (event, e) => {
+        const dayIndex = dropDayFromPointer(e.clientX, e.clientY);
+        setDraggingUnscheduled(null);
+        setDragPointer(null);
+        setDropDayIndex(null);
+        if (dayIndex == null) return;
+        handleUnassignedEventDrop(event, dayIndex);
+      },
+      onDragCancel: () => {
+        setDraggingUnscheduled(null);
+        setDragPointer(null);
+        setDropDayIndex(null);
+      },
+      onPress: (event, e) => {
+        if (!isTouchLikePointer(e.pointerType)) return;
+        void handleOpenEvent(event);
+      },
+    });
+
   const handleCreateSubmit = useCreateEventSubmit(
     scheduledEvents,
     setScheduledEvents,
     onEventCreate,
     closeCreateTask,
+    unscheduledEvents,
+    setUnscheduledEvents,
   );
 
   const gridStyle: React.CSSProperties = useMemo(
@@ -541,6 +627,20 @@ export default function WeekView({
           {previousWeekButtonContent}
         </Button>
         <Title level={4}>{weekTitle}</Title>
+        <Button
+          type="button"
+          onClick={handleToday}
+          data-slot="today-button"
+          className={todayButtonClassName}
+          style={todayButtonStyle}
+          aria-label={
+            typeof todayButtonContent === "string"
+              ? todayButtonContent
+              : "Today"
+          }
+        >
+          {todayButtonContent}
+        </Button>
         <Button type="button" onClick={handleNextWeek} aria-label="Next week">
           {nextWeekButtonContent}
         </Button>
@@ -553,6 +653,7 @@ export default function WeekView({
             data-slot="week-day-cell"
             data-day-index={dayIndex}
             data-date={date}
+            data-drop-hover={dropDayIndex === dayIndex ? "" : undefined}
             style={{ padding: "4px", borderRight: "1px solid #e5e7eb" }}
           >
             <span>{dayjs(date).format("ddd")}</span>
@@ -574,7 +675,7 @@ export default function WeekView({
                 readOnly={readOnly}
                 onOpen={() => handleOpenEvent(event)}
                 dragDeltaX={dragDelta?.id === event.id ? dragDelta.x : null}
-                onResizeStart={onResizeStart}
+                onResizePointerDown={onResizePointerDown}
                 EventActionButton={EventActionButton}
               />
             ))}
@@ -583,7 +684,9 @@ export default function WeekView({
       </div>
 
       <div data-slot="unscheduled-list">
-        <h3 data-slot="unscheduled-title">Unscheduled events</h3>
+        <h3 data-slot="unscheduled-title">
+          {labels?.unscheduledTitle ?? "Unscheduled events"}
+        </h3>
         {!readOnly &&
           (AddEventButton ? (
             <AddEventButton onClick={openCreateTask} />
@@ -603,12 +706,16 @@ export default function WeekView({
             isOpen={isCreateTaskOpen}
             onClose={closeCreateTask}
             onSubmit={handleCreateSubmit}
+            initialStartDate={null}
+            initialEndDate={null}
           />
         ) : (
           <CreateTaskModal
             isOpen={isCreateTaskOpen}
             onClose={closeCreateTask}
             onSubmit={handleCreateSubmit}
+            initialStartDate={null}
+            initialEndDate={null}
           />
         )}
         <div data-slot="unscheduled-items">
@@ -618,25 +725,31 @@ export default function WeekView({
               data-slot="unscheduled-event"
               data-event-id={event.id}
               data-color={event.color ?? undefined}
-              draggable={!readOnly}
-              onDragEnd={(e) => {
-                const calendar = containerRef.current;
-                if (calendar) {
-                  const calendarRect = calendar.getBoundingClientRect();
-                  const dropX = e.clientX - calendarRect.left;
-                  const columnWidth = calendarRect.width / 7;
-                  const columnIndex = Math.floor(dropX / columnWidth);
-                  const boundedIndex = Math.max(0, Math.min(6, columnIndex));
-                  handleUnassignedEventDrop(event, boundedIndex);
-                }
-              }}
+              data-dragging={
+                draggingUnscheduled?.id === event.id ? "" : undefined
+              }
+              style={getEventChipStyle(event)}
+              onPointerDown={(e) => onUnscheduledPointerDown(e, event)}
               onDoubleClick={() => handleOpenEvent(event)}
             >
               {event.title}
             </div>
           ))}
         </div>
+        {unscheduledEvents.length > 0 && !readOnly && (
+          <p data-slot="unscheduled-hint">
+            {labels?.unscheduledHint ??
+              "Drag an event onto a day above to schedule it, or double-click to view."}
+          </p>
+        )}
       </div>
+      {draggingUnscheduled && dragPointer && (
+        <PointerDragGhost
+          event={draggingUnscheduled}
+          x={dragPointer.x}
+          y={dragPointer.y}
+        />
+      )}
       {selectedEvent &&
         (EventDetailModal ? (
           <EventDetailModal

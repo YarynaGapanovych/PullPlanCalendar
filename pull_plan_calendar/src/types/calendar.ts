@@ -11,8 +11,8 @@ export interface WeekDay {
 export interface CalendarEvent {
   id: string;
   title: string;
-  start: string | Dayjs;
-  end: string | Dayjs;
+  start?: string | Dayjs | null;
+  end?: string | Dayjs | null;
   resourceId?: string;
   color?: string;
   meta?: Record<string, unknown>;
@@ -42,9 +42,17 @@ export interface CalendarEventResizePayload {
 export interface CalendarEventCreatePayload {
   id: string;
   title: string;
-  start: Dayjs;
-  end: Dayjs;
+  start?: Dayjs | null;
+  end?: Dayjs | null;
   resourceId?: string;
   color?: string;
   meta?: Record<string, unknown>;
+}
+
+/** Editable copy for unscheduled list and similar UI strings. */
+export interface CalendarLabels {
+  /** Unscheduled list heading. Default: "Unscheduled events" */
+  unscheduledTitle?: string;
+  /** Hint under the unscheduled list. */
+  unscheduledHint?: string;
 }

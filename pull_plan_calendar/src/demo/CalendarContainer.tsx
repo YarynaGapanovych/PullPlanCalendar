@@ -67,6 +67,12 @@ export interface CalendarContainerProps {
   previousYearButtonContent?: React.ReactNode;
   /** Content for year view "next year" nav button. Default: → */
   nextYearButtonContent?: React.ReactNode;
+  /** Content for the day/week "Today" nav button. Default: Today */
+  todayButtonContent?: React.ReactNode;
+  /** Class name for the day/week "Today" nav button. */
+  todayButtonClassName?: string;
+  /** Inline style for the day/week "Today" nav button. */
+  todayButtonStyle?: React.CSSProperties;
   /** Class name for the view switcher (SegmentedControl container). */
   viewSwitcherClassName?: string;
   /** Class name for each view switcher option button. */
@@ -99,6 +105,9 @@ export default function CalendarContainer({
   nextMonthButtonContent,
   previousYearButtonContent,
   nextYearButtonContent,
+  todayButtonContent,
+  todayButtonClassName,
+  todayButtonStyle,
   viewSwitcherClassName,
   viewSwitcherButtonClassName,
 }: CalendarContainerProps) {
@@ -136,6 +145,9 @@ export default function CalendarContainer({
             nextMonthButtonContent={nextMonthButtonContent}
             previousYearButtonContent={previousYearButtonContent}
             nextYearButtonContent={nextYearButtonContent}
+            todayButtonContent={todayButtonContent}
+            todayButtonClassName={todayButtonClassName}
+            todayButtonStyle={todayButtonStyle}
             viewSwitcherClassName={viewSwitcherClassName}
             viewSwitcherButtonClassName={viewSwitcherButtonClassName}
           />
@@ -178,6 +190,9 @@ export default function CalendarContainer({
                 nextMonthButtonContent={nextMonthButtonContent}
                 previousYearButtonContent={previousYearButtonContent}
                 nextYearButtonContent={nextYearButtonContent}
+                todayButtonContent={todayButtonContent}
+                todayButtonClassName={todayButtonClassName}
+                todayButtonStyle={todayButtonStyle}
                 viewSwitcherClassName={viewSwitcherClassName}
                 viewSwitcherButtonClassName={viewSwitcherButtonClassName}
               />

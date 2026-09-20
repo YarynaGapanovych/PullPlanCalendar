@@ -16,8 +16,8 @@ export enum UserRole {
 export interface Task {
   id: string;
   name: string;
-  startDate: string | Dayjs;
-  endDate: string | Dayjs;
+  startDate?: string | Dayjs | null;
+  endDate?: string | Dayjs | null;
   employees: Array<{ id: string; name?: string; [key: string]: unknown }>;
   progressStatus?: ProgressStatus;
   [key: string]: unknown;

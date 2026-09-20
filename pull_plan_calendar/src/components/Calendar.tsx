@@ -7,10 +7,22 @@ import type {
   CalendarEventMovePayload,
   CalendarEventResizePayload,
   CalendarEventCreatePayload,
+  CalendarLabels,
 } from "../types/calendar";
 import type { Task } from "../types/task";
 import { DndContext } from "@dnd-kit/core";
 import dayjs, { type Dayjs } from "dayjs";
+import { useCallback, useEffect, useState } from "react";
+import { useCalendarDragEnd } from "../hooks/useCalendarDragEnd";
+import { useCalendarViews, ALL_VIEWS } from "../hooks/useCalendarViews";
+import {
+  applyWeekStartsOn,
+  type WeekStartsOn,
+} from "../utils/calendarHelpers";
+import DayView from "./DayView";
+import MonthView from "./MonthView";
+import WeekView from "./WeekView";
+import YearView from "./YearView";
 
 /** Patch for a single event update (e.g. drag/resize). Use with onEventChange. */
 export type CalendarEventPatch = Partial<
@@ -20,6 +32,8 @@ export type CalendarEventPatch = Partial<
   >
 >;
 
+export type { CalendarLabels };
+
 export interface CalendarProps {
   // --- Controlled mode ---
   /** Controlled events (scheduled on the calendar). When set, calendar uses this instead of internal state. */
@@ -28,7 +42,7 @@ export interface CalendarProps {
   onEventsChange?: (events: CalendarEvent[]) => void;
   /** Notify when a single event is updated (e.g. drag/resize). Alternative to onEventsChange for granular updates. */
   onEventChange?: (event: CalendarEvent, patch: CalendarEventPatch) => void;
-  /** Controlled visible date (e.g. week start for week view). */
+  /** Controlled visible date (focused day; week/month derive from this). */
   date?: Dayjs;
   /** Notify when the visible date changes (navigation). */
   onDateChange?: (date: Dayjs) => void;
@@ -97,6 +111,32 @@ export interface CalendarProps {
   previousYearButtonContent?: React.ReactNode;
   /** Content for year view "next year" nav button. Default: → */
   nextYearButtonContent?: React.ReactNode;
+  /** Content for the day/week "Today" nav button. Default: Today */
+  todayButtonContent?: React.ReactNode;
+  /** Class name for the day/week "Today" nav button. */
+  todayButtonClassName?: string;
+  /** Inline style for the day/week "Today" nav button. */
+  todayButtonStyle?: React.CSSProperties;
+  /** Editable copy for unscheduled list title/hint. */
+  labels?: CalendarLabels;
+  /**
+   * First day of the week: 0 = Sunday … 6 = Saturday.
+   * Default 0. Pass 1 for Monday-start (common in Europe).
+   */
+  weekStartsOn?: WeekStartsOn;
+  /** Max event chips shown per day in month/year before "+N more". Default 3. */
+  maxEventsPerDay?: number;
+  /** Default event length in minutes for day slot-create and unscheduled drops. Default 60. */
+  defaultDurationMinutes?: number;
+  /** Workday start as HH:mm. Default "09:00". */
+  workdayStart?: string;
+  /** Workday end as HH:mm. Default "17:00". */
+  workdayEnd?: string;
+  /**
+   * When false (default), day grid crops to workday ±1h.
+   * When true, shows 00–24 and dims hours outside the workday.
+   */
+  showFullDay?: boolean;
   /** Root element class name. */
   className?: string;
   /** Root element inline style. */
@@ -106,14 +146,6 @@ export interface CalendarProps {
   /** Class name for each view switcher option button. */
   viewSwitcherButtonClassName?: string;
 }
-
-import { useState } from "react";
-import { useCalendarDragEnd } from "../hooks/useCalendarDragEnd";
-import { useCalendarViews, ALL_VIEWS } from "../hooks/useCalendarViews";
-import DayView from "./DayView";
-import MonthView from "./MonthView";
-import WeekView from "./WeekView";
-import YearView from "./YearView";
 
 const VIEW_LABELS: Record<CalendarViewMode, string> = {
   day: "Daily",
@@ -156,26 +188,107 @@ export default function Calendar({
   nextMonthButtonContent,
   previousYearButtonContent,
   nextYearButtonContent,
+  todayButtonContent,
+  todayButtonClassName,
+  todayButtonStyle,
+  labels,
+  weekStartsOn = 0,
+  maxEventsPerDay = 3,
+  defaultDurationMinutes = 60,
+  workdayStart = "09:00",
+  workdayEnd = "17:00",
+  showFullDay = false,
   className,
   style,
   viewSwitcherClassName,
   viewSwitcherButtonClassName,
 }: CalendarProps) {
-  const { orderedViews, setZoomLevel, effectiveZoom } = useCalendarViews(views);
-
-  const [scheduledEvents, setScheduledEvents] = useState<CalendarEvent[]>(
-    () => defaultScheduledEvents ?? defaultEvents ?? [],
+  const { orderedViews, setZoomLevel, effectiveZoom } = useCalendarViews(
+    views,
+    { view, defaultView, onViewChange },
   );
+
+  useEffect(() => {
+    applyWeekStartsOn(weekStartsOn);
+  }, [weekStartsOn]);
+
+  const isEventsControlled = events !== undefined;
+  const [internalScheduledEvents, setInternalScheduledEvents] = useState<
+    CalendarEvent[]
+  >(() => defaultScheduledEvents ?? defaultEvents ?? []);
+  const scheduledEvents = isEventsControlled
+    ? events
+    : internalScheduledEvents;
+
   const [unscheduledEvents, setUnscheduledEvents] = useState<CalendarEvent[]>(
     () => defaultUnscheduledEvents ?? [],
   );
-  const [startDate, setStartDate] = useState<Dayjs>(dayjs().startOf("week"));
+
+  const isDateControlled = date !== undefined;
+  const [internalStartDate, setInternalStartDate] = useState<Dayjs>(
+    () => defaultDate ?? dayjs(),
+  );
+  const startDate = isDateControlled ? date : internalStartDate;
+
+  const setStartDate = useCallback(
+    (next: Dayjs) => {
+      if (!isDateControlled) {
+        setInternalStartDate(next);
+      }
+      onDateChange?.(next);
+    },
+    [isDateControlled, onDateChange],
+  );
+
+  const handleScheduledEventsChange = useCallback(
+    (updater: React.SetStateAction<CalendarEvent[]>) => {
+      const prev = isEventsControlled ? events : internalScheduledEvents;
+      const next = typeof updater === "function" ? updater(prev) : updater;
+      if (!isEventsControlled) {
+        setInternalScheduledEvents(next);
+      }
+      onEventsChange?.(next);
+
+      if (onEventChange && next.length === prev.length) {
+        for (let i = 0; i < next.length; i++) {
+          const before = prev.find((e) => e.id === next[i].id);
+          const after = next[i];
+          if (!before) continue;
+          if (
+            before.start !== after.start ||
+            before.end !== after.end ||
+            before.title !== after.title ||
+            before.color !== after.color ||
+            before.resourceId !== after.resourceId
+          ) {
+            const patch: CalendarEventPatch = {};
+            if (before.start !== after.start) patch.start = after.start;
+            if (before.end !== after.end) patch.end = after.end;
+            if (before.title !== after.title) patch.title = after.title;
+            if (before.color !== after.color) patch.color = after.color;
+            if (before.resourceId !== after.resourceId)
+              patch.resourceId = after.resourceId;
+            if (Object.keys(patch).length > 0) {
+              onEventChange(after, patch);
+            }
+          }
+        }
+      }
+    },
+    [
+      isEventsControlled,
+      events,
+      internalScheduledEvents,
+      onEventsChange,
+      onEventChange,
+    ],
+  );
 
   const handleDragEnd = useCalendarDragEnd(
     startDate,
     scheduledEvents,
     unscheduledEvents,
-    setScheduledEvents,
+    handleScheduledEventsChange,
     setUnscheduledEvents,
     onEventMove,
     effectiveZoom,
@@ -188,7 +301,7 @@ export default function Calendar({
         setStartDate={setStartDate}
         scheduledEvents={scheduledEvents}
         unscheduledEvents={unscheduledEvents}
-        setScheduledEvents={setScheduledEvents}
+        setScheduledEvents={handleScheduledEventsChange}
         setUnscheduledEvents={setUnscheduledEvents}
         onEventMove={onEventMove}
         onEventResize={onEventResize}
@@ -203,15 +316,23 @@ export default function Calendar({
         EventDetailModal={EventDetailModal}
         previousDayButtonContent={previousDayButtonContent}
         nextDayButtonContent={nextDayButtonContent}
+        todayButtonContent={todayButtonContent}
+        todayButtonClassName={todayButtonClassName}
+        todayButtonStyle={todayButtonStyle}
+        labels={labels}
+        defaultDurationMinutes={defaultDurationMinutes}
+        workdayStart={workdayStart}
+        workdayEnd={workdayEnd}
+        showFullDay={showFullDay}
       />
     ),
     week: (
       <WeekView
-        startDate={startDate}
+        startDate={startDate.startOf("week")}
         setStartDate={setStartDate}
         scheduledEvents={scheduledEvents}
         unscheduledEvents={unscheduledEvents}
-        setScheduledEvents={setScheduledEvents}
+        setScheduledEvents={handleScheduledEventsChange}
         setUnscheduledEvents={setUnscheduledEvents}
         onEventMove={onEventMove}
         onEventResize={onEventResize}
@@ -226,38 +347,50 @@ export default function Calendar({
         EventDetailModal={EventDetailModal}
         previousWeekButtonContent={previousWeekButtonContent}
         nextWeekButtonContent={nextWeekButtonContent}
+        todayButtonContent={todayButtonContent}
+        todayButtonClassName={todayButtonClassName}
+        todayButtonStyle={todayButtonStyle}
+        labels={labels}
       />
     ),
     month: (
       <MonthView
         setStartDate={setStartDate}
         events={scheduledEvents}
-        setEvents={setScheduledEvents}
+        setEvents={handleScheduledEventsChange}
         setZoomLevel={setZoomLevel}
         onEventClick={onEventClick}
         onDateClick={onDateClick}
+        onEventCreate={onEventCreate}
         readOnly={readOnly}
         mapFromEvent={mapFromEvent}
         AddEventButton={AddEventButton}
         CreateEventModal={CreateEventModal}
+        EventDetailModal={EventDetailModal}
         previousMonthButtonContent={previousMonthButtonContent}
         nextMonthButtonContent={nextMonthButtonContent}
+        weekStartsOn={weekStartsOn}
+        maxEventsPerDay={maxEventsPerDay}
       />
     ),
     year: (
       <YearView
         setStartDate={setStartDate}
         events={scheduledEvents}
-        setEvents={setScheduledEvents}
+        setEvents={handleScheduledEventsChange}
         setZoomLevel={setZoomLevel}
         onEventClick={onEventClick}
         onDateClick={onDateClick}
+        onEventCreate={onEventCreate}
         readOnly={readOnly}
         mapFromEvent={mapFromEvent}
         AddEventButton={AddEventButton}
         CreateEventModal={CreateEventModal}
+        EventDetailModal={EventDetailModal}
         previousYearButtonContent={previousYearButtonContent}
         nextYearButtonContent={nextYearButtonContent}
+        weekStartsOn={weekStartsOn}
+        maxEventsPerDay={maxEventsPerDay}
       />
     ),
   };

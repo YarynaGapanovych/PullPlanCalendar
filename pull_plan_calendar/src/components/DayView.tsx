@@ -1,31 +1,49 @@
 "use client";
 
-import dayjs from "dayjs";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import dayjs, { type Dayjs } from "dayjs";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useCreateEventSubmit } from "../hooks/useCreateEventSubmit";
+import { useDelayedPointerDrag } from "../hooks/useDelayedPointerDrag";
 import type {
   CalendarEvent,
   CalendarEventCreatePayload,
   CalendarEventMovePayload,
   CalendarEventResizePayload,
+  CalendarLabels,
   CalendarViewMode,
 } from "../types/calendar";
 import type { Task } from "../types/task";
+import {
+  formatEventTimeLabel,
+  getEventChipStyle,
+  isAllDayLikeEvent,
+} from "../utils/eventDisplay";
+import { isTouchLikePointer, pointInRect } from "../utils/pointerDrag";
+import {
+  clampStartToWindow,
+  formatHourLabel,
+  getVisibleHourRange,
+  hhmmToMinutes,
+  minutesFromGridPointer,
+  snapMinutes,
+} from "../utils/timeGrid";
 import type { CreateTaskModalProps } from "./tasks/CreateTaskModal";
 import { CreateTaskModal } from "./tasks/CreateTaskModal";
 import type { TaskModalProps } from "./tasks/TaskModal";
 import { TaskModal } from "./tasks/TaskModal";
 import { EventActionButtonSlot } from "./EventActionButtonSlot";
+import { PointerDragGhost } from "./PointerDragGhost";
 import { Button } from "./ui/Button";
 import { Title } from "./ui/Title";
 import { Tooltip } from "./ui/Tooltip";
 
 const MIN_EVENT_HEIGHT_PX = 24;
+const HOUR_ROW_HEIGHT = 48;
 
 function isFullDayEvent(
   event: CalendarEvent,
-  dayStart: dayjs.Dayjs,
-  dayEnd: dayjs.Dayjs,
+  dayStart: Dayjs,
+  dayEnd: Dayjs,
 ): boolean {
   const start = dayjs(event.start);
   const end = dayjs(event.end);
@@ -37,17 +55,17 @@ function isFullDayEvent(
 
 function getEventDayPosition(
   event: CalendarEvent,
-  dayStart: dayjs.Dayjs,
-  dayEnd: dayjs.Dayjs,
+  windowStart: Dayjs,
+  windowEnd: Dayjs,
   hourRowHeight: number,
 ): { topPx: number; heightPx: number } | null {
   const start = dayjs(event.start);
   const end = dayjs(event.end);
-  const visualStart = start.isBefore(dayStart) ? dayStart : start;
-  const visualEnd = end.isAfter(dayEnd) ? dayEnd : end;
+  const visualStart = start.isBefore(windowStart) ? windowStart : start;
+  const visualEnd = end.isAfter(windowEnd) ? windowEnd : end;
   if (!visualStart.isBefore(visualEnd) && !visualStart.isSame(visualEnd))
     return null;
-  const topPx = visualStart.diff(dayStart, "minute") * (hourRowHeight / 60);
+  const topPx = visualStart.diff(windowStart, "minute") * (hourRowHeight / 60);
   const heightPx = Math.max(
     MIN_EVENT_HEIGHT_PX,
     visualEnd.diff(visualStart, "minute") * (hourRowHeight / 60),
@@ -56,8 +74,8 @@ function getEventDayPosition(
 }
 
 export interface DayViewProps {
-  startDate: dayjs.Dayjs;
-  setStartDate: (date: dayjs.Dayjs) => void;
+  startDate: Dayjs;
+  setStartDate: (date: Dayjs) => void;
   scheduledEvents: CalendarEvent[];
   unscheduledEvents: CalendarEvent[];
   setScheduledEvents: React.Dispatch<React.SetStateAction<CalendarEvent[]>>;
@@ -66,29 +84,37 @@ export interface DayViewProps {
   onEventResize?: (payload: CalendarEventResizePayload) => Promise<void>;
   onEventCreate?: (payload: CalendarEventCreatePayload) => Promise<void>;
   onEventClick?: (event: CalendarEvent) => Promise<void>;
-  onDateClick?: (date: dayjs.Dayjs, view: CalendarViewMode) => Promise<void>;
+  onDateClick?: (date: Dayjs, view: CalendarViewMode) => Promise<void>;
   readOnly?: boolean;
   updateTask?: (options?: {
     variables?: { data: Record<string, unknown> };
     onError?: (error: Error) => void;
   }) => Promise<void>;
-  /** Optional: map event → task to show TaskModal (e.g. mapEventToTask). */
   mapFromEvent?: (event: CalendarEvent) => Task;
-  /** Custom "add event" button; receives onClick. If not set, default "+" button is used. */
   AddEventButton?: React.ComponentType<{ onClick: () => void }>;
-  /** Custom create-event modal. If not set, default CreateTaskModal is used. Must accept isOpen, onClose, onSubmit. */
   CreateEventModal?: React.ComponentType<CreateTaskModalProps>;
-  /** Custom button to open event details (replaces default "View"). Receives event and onOpen. */
   EventActionButton?: React.ComponentType<{
     event: CalendarEvent;
     onOpen: () => void;
   }>;
-  /** Custom modal for viewing event details. If not set, default TaskModal is used (requires mapFromEvent). */
   EventDetailModal?: React.ComponentType<TaskModalProps>;
-  /** Content for the "previous day" nav button. Default: ← */
   previousDayButtonContent?: React.ReactNode;
-  /** Content for the "next day" nav button. Default: → */
   nextDayButtonContent?: React.ReactNode;
+  /** Content for the "Today" nav button. Default: Today */
+  todayButtonContent?: React.ReactNode;
+  /** Class name for the "Today" nav button. */
+  todayButtonClassName?: string;
+  /** Inline style for the "Today" nav button. */
+  todayButtonStyle?: React.CSSProperties;
+  labels?: CalendarLabels;
+  /** Default length for slot-create and unscheduled drops. Default 60. */
+  defaultDurationMinutes?: number;
+  /** Workday start HH:mm. Default "09:00". */
+  workdayStart?: string;
+  /** Workday end HH:mm. Default "17:00". */
+  workdayEnd?: string;
+  /** When true, show full 00–24 and dim outside work hours. Default false (crop). */
+  showFullDay?: boolean;
   className?: string;
   style?: React.CSSProperties;
 }
@@ -101,7 +127,6 @@ export default function DayView({
   setScheduledEvents,
   setUnscheduledEvents,
   onEventMove,
-  onEventResize,
   onEventCreate,
   onEventClick,
   onDateClick,
@@ -114,6 +139,14 @@ export default function DayView({
   EventDetailModal,
   previousDayButtonContent = "←",
   nextDayButtonContent = "→",
+  todayButtonContent = "Today",
+  todayButtonClassName,
+  todayButtonStyle,
+  labels,
+  defaultDurationMinutes = 60,
+  workdayStart = "09:00",
+  workdayEnd = "17:00",
+  showFullDay = false,
   className,
   style,
 }: DayViewProps) {
@@ -122,33 +155,104 @@ export default function DayView({
   const [selectedEvent, setSelectedEvent] = useState<CalendarEvent | null>(
     null,
   );
+  const [createSeedStart, setCreateSeedStart] = useState<Dayjs | null>(null);
+  const [createSeedEnd, setCreateSeedEnd] = useState<Dayjs | null>(null);
+  const [dropPreview, setDropPreview] = useState<{
+    topPx: number;
+    heightPx: number;
+  } | null>(null);
+  const [moving, setMoving] = useState<{
+    eventId: string;
+    startClientY: number;
+    originTopPx: number;
+    durationMinutes: number;
+  } | null>(null);
+  const [movePreviewTopPx, setMovePreviewTopPx] = useState<number | null>(null);
+  const [draggingUnscheduled, setDraggingUnscheduled] =
+    useState<CalendarEvent | null>(null);
+  const [dragPointer, setDragPointer] = useState<{
+    x: number;
+    y: number;
+  } | null>(null);
+  const gridScrollRef = useRef<HTMLDivElement>(null);
+  const movePreviewRef = useRef<{ topPx: number; active: boolean }>({
+    topPx: 0,
+    active: false,
+  });
+  const skipClickAfterMoveRef = useRef(false);
+  const dropPreviewRef = useRef<{
+    topPx: number;
+    heightPx: number;
+    start: Dayjs;
+  } | null>(null);
+  const movingRef = useRef<{
+    eventId: string;
+    startClientY: number;
+    originTopPx: number;
+    durationMinutes: number;
+  } | null>(null);
 
   const openTask = () => setIsTaskOpen(true);
   const closeTask = () => {
     setIsTaskOpen(false);
     setSelectedEvent(null);
   };
-  const openCreateTask = async () => {
+
+  const closeCreateTask = () => {
+    setIsCreateTaskOpen(false);
+    setCreateSeedStart(null);
+    setCreateSeedEnd(null);
+  };
+
+  const openUnscheduledCreate = () => {
+    setCreateSeedStart(null);
+    setCreateSeedEnd(null);
+    setIsCreateTaskOpen(true);
+  };
+
+  const openCreateTask = async (at?: Dayjs) => {
+    const start = at ?? startDate.hour(9).minute(0).second(0).millisecond(0);
+    const end = start.add(defaultDurationMinutes, "minute");
     if (onDateClick) {
       try {
-        await onDateClick(startDate, "day");
+        await onDateClick(start, "day");
       } catch {
         return;
       }
     }
+    setCreateSeedStart(start);
+    setCreateSeedEnd(end);
     setIsCreateTaskOpen(true);
   };
-  const closeCreateTask = () => setIsCreateTaskOpen(false);
 
   const dayTitle = useMemo(
     () => startDate.format("dddd, MMM D, YYYY"),
     [startDate],
   );
 
-  const hours = useMemo(() => Array.from({ length: 24 }, (_, i) => i), []);
-  const HOUR_ROW_HEIGHT = 48;
+  const { startHour, endHour } = useMemo(
+    () => getVisibleHourRange(workdayStart, workdayEnd, showFullDay),
+    [workdayStart, workdayEnd, showFullDay],
+  );
+  const hours = useMemo(
+    () => Array.from({ length: endHour - startHour }, (_, i) => startHour + i),
+    [startHour, endHour],
+  );
+  const hourCount = hours.length;
+
   const dayStart = useMemo(() => startDate.startOf("day"), [startDate]);
   const dayEnd = useMemo(() => startDate.endOf("day"), [startDate]);
+  const windowStart = useMemo(
+    () => dayStart.add(startHour, "hour"),
+    [dayStart, startHour],
+  );
+  const windowEnd = useMemo(
+    () => dayStart.add(endHour, "hour"),
+    [dayStart, endHour],
+  );
+
+  const workdayStartMin = hhmmToMinutes(workdayStart, 9 * 60);
+  const workdayEndMin = hhmmToMinutes(workdayEnd, 17 * 60);
 
   const [now, setNow] = useState(() => dayjs());
   const isViewingToday = startDate.isSame(now, "day");
@@ -157,6 +261,16 @@ export default function DayView({
     const t = setInterval(() => setNow(dayjs()), 60_000);
     return () => clearInterval(t);
   }, [isViewingToday]);
+
+  useEffect(() => {
+    if (!isViewingToday || !gridScrollRef.current) return;
+    const current = dayjs();
+    if (current.isBefore(windowStart) || !current.isBefore(windowEnd)) return;
+    const top =
+      current.diff(windowStart, "minute") * (HOUR_ROW_HEIGHT / 60) -
+      HOUR_ROW_HEIGHT * 2;
+    gridScrollRef.current.scrollTop = Math.max(0, top);
+  }, [isViewingToday, startDate, windowStart, windowEnd]);
 
   const eventsForDay = useMemo(() => {
     return scheduledEvents.filter((event) => {
@@ -199,12 +313,89 @@ export default function DayView({
     setStartDate(startDate.add(1, "day"));
   };
 
-  const handleUnassignedEventDrop = useCallback(
+  const handleToday = () => {
+    setStartDate(dayjs());
+  };
+
+  const handleHourClick = (hour: number) => {
+    if (readOnly) return;
+    void openCreateTask(dayStart.hour(hour).minute(0).second(0).millisecond(0));
+  };
+
+  const eventDurationMinutes = useCallback(
     (event: CalendarEvent) => {
       const oldStart = dayjs(event.start);
       const oldEnd = dayjs(event.end);
-      const newStart = startDate.startOf("day");
-      const newEnd = startDate.add(1, "days").startOf("day");
+      const existingDuration = oldEnd.diff(oldStart, "minute");
+      if (!isAllDayLikeEvent(event) && existingDuration > 0) {
+        return existingDuration;
+      }
+      return defaultDurationMinutes;
+    },
+    [defaultDurationMinutes],
+  );
+
+  const startFromPointer = useCallback(
+    (clientY: number, durationMinutes: number) => {
+      const scrollEl = gridScrollRef.current;
+      if (!scrollEl) return null;
+      const minutesFromWindow = minutesFromGridPointer(
+        clientY,
+        scrollEl,
+        HOUR_ROW_HEIGHT,
+      );
+      const rawStart = windowStart.add(minutesFromWindow, "minute");
+      return clampStartToWindow(
+        rawStart,
+        windowStart,
+        windowEnd,
+        durationMinutes,
+      );
+    },
+    [windowStart, windowEnd],
+  );
+
+  const dropPreviewFromPointer = useCallback(
+    (event: CalendarEvent, clientY: number) => {
+      const durationMinutes = eventDurationMinutes(event);
+      const newStart = startFromPointer(clientY, durationMinutes);
+      if (!newStart) return null;
+      const topPx =
+        newStart.diff(windowStart, "minute") * (HOUR_ROW_HEIGHT / 60);
+      const heightPx = Math.max(
+        MIN_EVENT_HEIGHT_PX,
+        durationMinutes * (HOUR_ROW_HEIGHT / 60),
+      );
+      return { topPx, heightPx, start: newStart };
+    },
+    [eventDurationMinutes, startFromPointer, windowStart],
+  );
+
+  const clearDropPreview = useCallback(() => {
+    dropPreviewRef.current = null;
+    setDropPreview(null);
+  }, []);
+
+  const handleEventsColumnClick = (e: React.MouseEvent<HTMLDivElement>) => {
+    if (readOnly) return;
+    if (skipClickAfterMoveRef.current) {
+      skipClickAfterMoveRef.current = false;
+      return;
+    }
+    if ((e.target as HTMLElement).closest('[data-slot="event"]')) return;
+    const at = startFromPointer(e.clientY, defaultDurationMinutes);
+    if (!at) return;
+    if (at.isBefore(windowStart) || !at.isBefore(windowEnd)) return;
+    void openCreateTask(at);
+  };
+
+  const handleUnassignedEventDrop = useCallback(
+    (event: CalendarEvent, newStart: Dayjs) => {
+      const oldStart = dayjs(event.start);
+      const oldEnd = dayjs(event.end);
+      const durationMinutes = eventDurationMinutes(event);
+      const newEnd = newStart.add(durationMinutes, "minute");
+
       const updatedEvent: CalendarEvent = {
         ...event,
         start: newStart,
@@ -233,7 +424,7 @@ export default function DayView({
       }
     },
     [
-      startDate,
+      eventDurationMinutes,
       scheduledEvents,
       unscheduledEvents,
       setScheduledEvents,
@@ -242,12 +433,174 @@ export default function DayView({
     ],
   );
 
+  const updateTimedMovePreview = useCallback(
+    (clientY: number) => {
+      const current = movingRef.current;
+      if (!current) return;
+      const rawTop = current.originTopPx + (clientY - current.startClientY);
+      const minutesFromTop = snapMinutes((rawTop / HOUR_ROW_HEIGHT) * 60);
+      const rawStart = windowStart.add(minutesFromTop, "minute");
+      const newStart = clampStartToWindow(
+        rawStart,
+        windowStart,
+        windowEnd,
+        current.durationMinutes,
+      );
+      const topPx =
+        newStart.diff(windowStart, "minute") * (HOUR_ROW_HEIGHT / 60);
+      movePreviewRef.current = { topPx, active: true };
+      setMovePreviewTopPx(topPx);
+    },
+    [windowStart, windowEnd],
+  );
+
+  const commitTimedMove = useCallback(() => {
+    const current = movingRef.current;
+    const preview = movePreviewRef.current;
+    movingRef.current = null;
+    setMoving(null);
+    setMovePreviewTopPx(null);
+    movePreviewRef.current = { topPx: 0, active: false };
+    if (!current || !preview.active) return;
+    skipClickAfterMoveRef.current = true;
+    const evt = scheduledEvents.find((item) => item.id === current.eventId);
+    if (!evt) return;
+    const minutesFromWindow = Math.round(
+      preview.topPx / (HOUR_ROW_HEIGHT / 60),
+    );
+    const newStart = windowStart
+      .add(minutesFromWindow, "minute")
+      .second(0)
+      .millisecond(0);
+    const newEnd = newStart.add(current.durationMinutes, "minute");
+    const oldStart = dayjs(evt.start);
+    const oldEnd = dayjs(evt.end);
+    if (oldStart.isSame(newStart) && oldEnd.isSame(newEnd)) return;
+    const updatedEvent: CalendarEvent = {
+      ...evt,
+      start: newStart,
+      end: newEnd,
+    };
+    const prevScheduled = [...scheduledEvents];
+    setScheduledEvents((prev) =>
+      prev.map((item) => (item.id === current.eventId ? updatedEvent : item)),
+    );
+    if (onEventMove) {
+      void (async () => {
+        try {
+          await onEventMove({
+            id: current.eventId,
+            start: newStart,
+            end: newEnd,
+            oldStart,
+            oldEnd,
+            view: "day",
+          });
+        } catch {
+          setScheduledEvents(prevScheduled);
+        }
+      })();
+    }
+  }, [scheduledEvents, setScheduledEvents, onEventMove, windowStart]);
+
+  const { onPointerDown: onTimedPointerDown } = useDelayedPointerDrag<{
+    event: CalendarEvent;
+    originTopPx: number;
+  }>({
+    disabled: readOnly,
+    onDragStart: ({ event, originTopPx }, e) => {
+      const session = {
+        eventId: event.id,
+        startClientY: e.clientY,
+        originTopPx,
+        durationMinutes: eventDurationMinutes(event),
+      };
+      movingRef.current = session;
+      setMoving(session);
+    },
+    onDragMove: (_payload, e) => {
+      updateTimedMovePreview(e.clientY);
+    },
+    onDragEnd: () => {
+      commitTimedMove();
+    },
+    onDragCancel: () => {
+      movingRef.current = null;
+      setMoving(null);
+      setMovePreviewTopPx(null);
+      movePreviewRef.current = { topPx: 0, active: false };
+    },
+  });
+
+  const { onPointerDown: onUnscheduledPointerDown } =
+    useDelayedPointerDrag<CalendarEvent>({
+      disabled: readOnly,
+      onDragStart: (event, e) => {
+        setDraggingUnscheduled(event);
+        setDragPointer({ x: e.clientX, y: e.clientY });
+        const grid = gridScrollRef.current;
+        if (
+          !grid ||
+          !pointInRect(e.clientX, e.clientY, grid.getBoundingClientRect())
+        ) {
+          clearDropPreview();
+          return;
+        }
+        const preview = dropPreviewFromPointer(event, e.clientY);
+        dropPreviewRef.current = preview;
+        setDropPreview(
+          preview ? { topPx: preview.topPx, heightPx: preview.heightPx } : null,
+        );
+      },
+      onDragMove: (event, e) => {
+        setDragPointer({ x: e.clientX, y: e.clientY });
+        const grid = gridScrollRef.current;
+        if (
+          !grid ||
+          !pointInRect(e.clientX, e.clientY, grid.getBoundingClientRect())
+        ) {
+          clearDropPreview();
+          return;
+        }
+        const preview = dropPreviewFromPointer(event, e.clientY);
+        dropPreviewRef.current = preview;
+        setDropPreview(
+          preview ? { topPx: preview.topPx, heightPx: preview.heightPx } : null,
+        );
+      },
+      onDragEnd: (event) => {
+        const preview = dropPreviewRef.current;
+        setDraggingUnscheduled(null);
+        setDragPointer(null);
+        clearDropPreview();
+        skipClickAfterMoveRef.current = true;
+        if (!preview) return;
+        handleUnassignedEventDrop(event, preview.start);
+      },
+      onDragCancel: () => {
+        clearDropPreview();
+        setDraggingUnscheduled(null);
+        setDragPointer(null);
+      },
+      onPress: (event, e) => {
+        if (!isTouchLikePointer(e.pointerType)) return;
+        void handleOpenEvent(event);
+      },
+    });
+
   const handleCreateSubmit = useCreateEventSubmit(
     scheduledEvents,
     setScheduledEvents,
     onEventCreate,
     closeCreateTask,
+    unscheduledEvents,
+    setUnscheduledEvents,
   );
+
+  const showNowLine =
+    isViewingToday &&
+    !now.isBefore(windowStart) &&
+    now.isBefore(windowEnd);
 
   return (
     <div data-slot="day-view" className={className} style={style}>
@@ -260,6 +613,20 @@ export default function DayView({
           {previousDayButtonContent}
         </Button>
         <Title level={4}>{dayTitle}</Title>
+        <Button
+          type="button"
+          onClick={handleToday}
+          data-slot="today-button"
+          className={todayButtonClassName}
+          style={todayButtonStyle}
+          aria-label={
+            typeof todayButtonContent === "string"
+              ? todayButtonContent
+              : "Today"
+          }
+        >
+          {todayButtonContent}
+        </Button>
         <Button type="button" onClick={handleNextDay} aria-label="Next day">
           {nextDayButtonContent}
         </Button>
@@ -276,6 +643,7 @@ export default function DayView({
                 data-event-id={event.id}
                 data-allday
                 data-color={event.color ?? undefined}
+                style={getEventChipStyle(event)}
               >
                 <span>{event.title}</span>
                 <EventActionButtonSlot
@@ -290,40 +658,94 @@ export default function DayView({
       )}
 
       <div
+        ref={gridScrollRef}
         data-slot="day-view-grid"
         style={{
           display: "grid",
           gridTemplateColumns: "4rem 1fr",
-          gridTemplateRows: `repeat(24, ${HOUR_ROW_HEIGHT}px)`,
+          gridTemplateRows: `repeat(${hourCount}, ${HOUR_ROW_HEIGHT}px)`,
+          maxHeight: Math.min(hourCount, 12) * HOUR_ROW_HEIGHT,
+          overflowY: "auto",
         }}
       >
-        {hours.map((hour) => (
-          <div
-            key={hour}
-            data-slot="day-hour"
-            data-hour={hour}
-            style={{ gridRow: hour + 1, minHeight: HOUR_ROW_HEIGHT }}
-          >
-            {hour === 0
-              ? "12 AM"
-              : hour < 12
-                ? `${hour} AM`
-                : hour === 12
-                  ? "12 PM"
-                  : `${hour - 12} PM`}
-          </div>
-        ))}
+        {hours.map((hour, index) => {
+          const minuteOfDay = hour * 60;
+          const outsideWork =
+            showFullDay &&
+            (minuteOfDay < workdayStartMin || minuteOfDay >= workdayEndMin);
+          return (
+            <div
+              key={hour}
+              data-slot={
+                outsideWork ? "day-hour-outside-workday" : "day-hour"
+              }
+              data-hour={hour}
+              role={readOnly ? undefined : "button"}
+              tabIndex={readOnly ? undefined : 0}
+              aria-label={
+                readOnly ? undefined : `Create event at ${formatHourLabel(hour)}`
+              }
+              onClick={() => handleHourClick(hour)}
+              onKeyDown={(e) => {
+                if (readOnly) return;
+                if (e.key === "Enter" || e.key === " ") {
+                  e.preventDefault();
+                  handleHourClick(hour);
+                }
+              }}
+              style={{
+                gridRow: index + 1,
+                minHeight: HOUR_ROW_HEIGHT,
+                cursor: readOnly ? "default" : "pointer",
+              }}
+            >
+              {formatHourLabel(hour)}
+            </div>
+          );
+        })}
         <div
           data-slot="day-events"
+          onClick={handleEventsColumnClick}
           style={{
             gridColumn: 2,
             gridRow: "1 / -1",
-            minHeight: 24 * HOUR_ROW_HEIGHT,
+            minHeight: hourCount * HOUR_ROW_HEIGHT,
             position: "relative",
             borderLeft: "1px solid #f3f4f6",
+            cursor: readOnly ? "default" : "pointer",
           }}
         >
-          {isViewingToday && (
+          {dropPreview != null && (
+            <>
+              <div
+                data-slot="day-drop-preview"
+                aria-hidden
+                style={{ top: dropPreview.topPx }}
+              />
+              {draggingUnscheduled && (
+                <div
+                  data-slot="day-drop-preview-event"
+                  aria-hidden
+                  style={getEventChipStyle(draggingUnscheduled, {
+                    position: "absolute",
+                    left: 4,
+                    right: 4,
+                    top: dropPreview.topPx,
+                    height: dropPreview.heightPx,
+                    boxSizing: "border-box",
+                    padding: "2px 6px",
+                    overflow: "hidden",
+                    pointerEvents: "none",
+                    opacity: 0.85,
+                    zIndex: 3,
+                  })}
+                >
+                  {draggingUnscheduled.title}
+                </div>
+              )}
+            </>
+          )}
+          {showNowLine && (
             <div
               data-slot="day-now-line"
               aria-hidden
@@ -331,7 +753,7 @@ export default function DayView({
                 position: "absolute",
                 left: 0,
                 right: 0,
-                top: now.diff(dayStart, "minute") * (HOUR_ROW_HEIGHT / 60),
+                top: now.diff(windowStart, "minute") * (HOUR_ROW_HEIGHT / 60),
                 height: 0,
                 borderTop: "2px solid var(--now-line-color, #dc2626)",
                 pointerEvents: "none",
@@ -349,6 +771,7 @@ export default function DayView({
                 right: "1rem",
                 textAlign: "center",
                 margin: 0,
+                pointerEvents: "none",
               }}
             >
               No events scheduled
@@ -357,29 +780,52 @@ export default function DayView({
             timedEvents.map((event) => {
               const pos = getEventDayPosition(
                 event,
-                dayStart,
-                dayEnd,
+                windowStart,
+                windowEnd,
                 HOUR_ROW_HEIGHT,
               );
               if (!pos) return null;
+              const timeLabel = formatEventTimeLabel(event);
+              const isMoving = moving?.eventId === event.id;
+              const topPx =
+                isMoving && movePreviewTopPx != null
+                  ? movePreviewTopPx
+                  : pos.topPx;
               return (
                 <div
                   key={event.id}
                   data-slot="event"
                   data-event-id={event.id}
                   data-color={event.color ?? undefined}
-                  style={{
+                  data-moving={isMoving ? "" : undefined}
+                  onPointerDown={(e) => {
+                    if ((e.target as HTMLElement).closest("button")) return;
+                    onTimedPointerDown(e, { event, originTopPx: pos.topPx });
+                  }}
+                  style={getEventChipStyle(event, {
                     position: "absolute",
                     left: 4,
                     right: 4,
-                    top: pos.topPx,
+                    top: topPx,
                     height: pos.heightPx,
                     boxSizing: "border-box",
                     padding: "2px 6px",
                     overflow: "hidden",
-                  }}
+                    cursor: readOnly
+                      ? "default"
+                      : isMoving && movePreviewTopPx != null
+                        ? "grabbing"
+                        : "grab",
+                    userSelect: "none",
+                    zIndex: isMoving && movePreviewTopPx != null ? 4 : undefined,
+                  })}
                 >
-                  <span>{event.title}</span>
+                  <span>
+                    {timeLabel ? (
+                      <span data-slot="event-time">{timeLabel} </span>
+                    ) : null}
+                    {event.title}
+                  </span>
                   <EventActionButtonSlot
                     event={event}
                     onOpen={() => handleOpenEvent(event)}
@@ -393,15 +839,17 @@ export default function DayView({
       </div>
 
       <div data-slot="unscheduled-list">
-        <h3 data-slot="unscheduled-title">Unscheduled events</h3>
+        <h3 data-slot="unscheduled-title">
+          {labels?.unscheduledTitle ?? "Unscheduled events"}
+        </h3>
         {!readOnly &&
           (AddEventButton ? (
-            <AddEventButton onClick={openCreateTask} />
+            <AddEventButton onClick={openUnscheduledCreate} />
           ) : (
             <Tooltip title="Add new event">
               <Button
                 type="button"
-                onClick={openCreateTask}
+                onClick={openUnscheduledCreate}
                 aria-label="Add event"
               >
                 +
@@ -413,12 +861,16 @@ export default function DayView({
             isOpen={isCreateTaskOpen}
             onClose={closeCreateTask}
             onSubmit={handleCreateSubmit}
+            initialStartDate={createSeedStart}
+            initialEndDate={createSeedEnd}
           />
         ) : (
           <CreateTaskModal
             isOpen={isCreateTaskOpen}
             onClose={closeCreateTask}
             onSubmit={handleCreateSubmit}
+            initialStartDate={createSeedStart}
+            initialEndDate={createSeedEnd}
           />
         )}
         <div data-slot="unscheduled-items">
@@ -428,10 +880,11 @@ export default function DayView({
               data-slot="unscheduled-event"
               data-event-id={event.id}
               data-color={event.color ?? undefined}
-              draggable={!readOnly}
-              onDragEnd={() => {
-                if (!readOnly) handleUnassignedEventDrop(event);
-              }}
+              data-dragging={
+                draggingUnscheduled?.id === event.id ? "" : undefined
+              }
+              style={getEventChipStyle(event)}
+              onPointerDown={(e) => onUnscheduledPointerDown(e, event)}
               onDoubleClick={() => handleOpenEvent(event)}
             >
               {event.title}
@@ -440,11 +893,18 @@ export default function DayView({
         </div>
         {unscheduledEvents.length > 0 && !readOnly && (
           <p data-slot="unscheduled-hint">
-            Drag an event onto the day above to schedule it, or double-click to
-            view.
+            {labels?.unscheduledHint ??
+              "Drag an event onto a time above to schedule it, or double-click to view."}
           </p>
         )}
       </div>
+      {draggingUnscheduled && dragPointer && dropPreview == null && (
+        <PointerDragGhost
+          event={draggingUnscheduled}
+          x={dragPointer.x}
+          y={dragPointer.y}
+        />
+      )}
 
       {selectedEvent &&
         (EventDetailModal ? (

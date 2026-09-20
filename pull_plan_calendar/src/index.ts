@@ -23,6 +23,7 @@ export type {
   CalendarEventMovePayload,
   CalendarEventResizePayload,
   CalendarEventCreatePayload,
+  CalendarLabels,
 } from "./types/calendar";
 export { ProgressStatus, UserRole } from "./types/task";
 export type { Task, Area } from "./types/task";
@@ -32,9 +33,23 @@ export {
   generateCalendarWeeks,
   getEventsForWeek,
   getEventsForYear,
+  getEventsForDay,
+  getWeekdayLabels,
+  getLeadingEmptyCount,
+  applyWeekStartsOn,
   getTasksForWeek,
   getTasksForYear,
 } from "./utils/calendarHelpers";
+export type { WeekStartsOn } from "./utils/calendarHelpers";
+export {
+  parseHHMM,
+  hhmmToMinutes,
+  snapMinutes,
+  minutesFromGridPointer,
+  clampStartToWindow,
+  getVisibleHourRange,
+  formatHourLabel,
+} from "./utils/timeGrid";
 
 /** Optional demo/helper: tabbed wrapper by "area". See src/demo/. */
 export { CalendarContainer, type CalendarContainerProps } from "./demo";

@@ -2,38 +2,48 @@
 
 import dayjs, { type Dayjs } from "dayjs";
 import { useMemo, useState } from "react";
-import type { CalendarEvent, CalendarViewMode } from "../types/calendar";
+import { useCreateEventSubmit } from "../hooks/useCreateEventSubmit";
+import type {
+  CalendarEvent,
+  CalendarEventCreatePayload,
+  CalendarViewMode,
+} from "../types/calendar";
 import type { Task } from "../types/task";
-import "../utils/calendarHelpers";
-import { getEventsForWeek } from "../utils/calendarHelpers";
+import {
+  generateCalendarWeeks,
+  getEventsForWeek,
+  getWeekdayLabels,
+  type WeekStartsOn,
+} from "../utils/calendarHelpers";
 import type { CreateTaskModalProps } from "./tasks/CreateTaskModal";
 import { CreateTaskModal } from "./tasks/CreateTaskModal";
+import type { TaskModalProps } from "./tasks/TaskModal";
 import { Button } from "./ui/Button";
 import { Title } from "./ui/Title";
+import { Tooltip } from "./ui/Tooltip";
 import { Week } from "./Week";
 
 export interface MonthViewProps {
   events: CalendarEvent[];
   setEvents: React.Dispatch<React.SetStateAction<CalendarEvent[]>>;
   setStartDate: (date: Dayjs) => void;
-  setZoomLevel: (zoom: "year" | "week") => void;
+  setZoomLevel: (zoom: CalendarViewMode) => void;
   onEventClick?: (event: CalendarEvent) => Promise<void>;
   onDateClick?: (date: Dayjs, view: CalendarViewMode) => Promise<void>;
+  onEventCreate?: (payload: CalendarEventCreatePayload) => Promise<void>;
   readOnly?: boolean;
   updateTask?: (options?: {
     variables?: { data: Record<string, unknown> };
     onError?: (error: Error) => void;
   }) => Promise<unknown>;
-  /** Optional: map event → task to show TaskModal (e.g. mapEventToTask). */
   mapFromEvent?: (event: CalendarEvent) => Task;
-  /** Custom "add event" button; receives onClick. If not set, no add button is shown in month view. */
   AddEventButton?: React.ComponentType<{ onClick: () => void }>;
-  /** Custom create-event modal. If not set, default CreateTaskModal is used. */
   CreateEventModal?: React.ComponentType<CreateTaskModalProps>;
-  /** Content for the "previous month" nav button. Default: ← */
+  EventDetailModal?: React.ComponentType<TaskModalProps>;
   previousMonthButtonContent?: React.ReactNode;
-  /** Content for the "next month" nav button. Default: → */
   nextMonthButtonContent?: React.ReactNode;
+  weekStartsOn?: WeekStartsOn;
+  maxEventsPerDay?: number;
   className?: string;
   style?: React.CSSProperties;
 }
@@ -45,17 +55,22 @@ export default function MonthView({
   setZoomLevel,
   onEventClick,
   onDateClick,
+  onEventCreate,
   readOnly = false,
   updateTask = async () => {},
   mapFromEvent,
   AddEventButton,
   CreateEventModal,
+  EventDetailModal,
   previousMonthButtonContent = "←",
   nextMonthButtonContent = "→",
+  weekStartsOn = 0,
+  maxEventsPerDay = 3,
   className,
   style,
 }: MonthViewProps) {
   const [currentMonth, setCurrentMonth] = useState(dayjs().month());
+  const [currentYear, setCurrentYear] = useState(dayjs().year());
   const [selectedDate, setSelectedDate] = useState<Dayjs | null>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
 
@@ -64,39 +79,55 @@ export default function MonthView({
     setIsModalOpen(true);
   };
 
-  const generateCalendarData = () => {
-    const year = dayjs().year();
-    const startDate = dayjs(`${year}-01-01`);
-    const weeks: Dayjs[][] = [];
-    let currentWeek: Dayjs[] = [];
-    let currentDate = startDate.clone();
-
-    while (currentDate.year() === year) {
-      currentWeek.push(currentDate.clone());
-      if (currentDate.day() === 6) {
-        weeks.push(currentWeek);
-        currentWeek = [];
-      }
-      currentDate = currentDate.add(1, "day");
-    }
-    if (currentWeek.length) {
-      weeks.push(currentWeek);
-    }
-    return weeks;
+  const closeModal = () => {
+    setIsModalOpen(false);
+    setSelectedDate(null);
   };
 
-  const calendarData = useMemo(() => generateCalendarData(), []);
+  const handleCreateSubmit = useCreateEventSubmit(
+    events,
+    setEvents,
+    onEventCreate,
+    closeModal,
+  );
+
+  const calendarData = useMemo(
+    () => generateCalendarWeeks(currentYear, weekStartsOn),
+    [currentYear, weekStartsOn],
+  );
+
+  const weekdayLabels = useMemo(
+    () => getWeekdayLabels(weekStartsOn),
+    [weekStartsOn],
+  );
 
   const getEventsForWeekInMonth = (week: Dayjs[]) =>
     getEventsForWeek(week, events);
 
   const handlePreviousMonth = () => {
-    setCurrentMonth((prev) => (prev - 1 + 12) % 12);
+    if (currentMonth === 0) {
+      setCurrentMonth(11);
+      setCurrentYear((y) => y - 1);
+    } else {
+      setCurrentMonth((m) => m - 1);
+    }
   };
 
   const handleNextMonth = () => {
-    setCurrentMonth((prev) => (prev + 1) % 12);
+    if (currentMonth === 11) {
+      setCurrentMonth(0);
+      setCurrentYear((y) => y + 1);
+    } else {
+      setCurrentMonth((m) => m + 1);
+    }
   };
+
+  const createInitialStart =
+    selectedDate?.startOf("day") ?? dayjs().startOf("day");
+  const createInitialEnd = createInitialStart.add(1, "day");
+  const monthTitle = dayjs(
+    `${currentYear}-${currentMonth + 1}-01`,
+  ).format("MMMM YYYY");
 
   return (
     <div data-slot="month-view" className={className} style={style}>
@@ -108,19 +139,28 @@ export default function MonthView({
         >
           {previousMonthButtonContent}
         </Button>
-        <Title level={4}>
-          {dayjs(`${dayjs().year()}-${currentMonth + 1}-01`).format("MMMM")}
-        </Title>
+        <Title level={4}>{monthTitle}</Title>
         <Button type="button" onClick={handleNextMonth} aria-label="Next month">
           {nextMonthButtonContent}
         </Button>
-        {!readOnly && AddEventButton && (
-          <AddEventButton onClick={() => openModalWithDate(dayjs())} />
-        )}
+        {!readOnly &&
+          (AddEventButton ? (
+            <AddEventButton onClick={() => openModalWithDate(dayjs())} />
+          ) : (
+            <Tooltip title="Add new event">
+              <Button
+                type="button"
+                onClick={() => openModalWithDate(dayjs())}
+                aria-label="Add event"
+              >
+                +
+              </Button>
+            </Tooltip>
+          ))}
       </div>
       <div data-slot="month-view-body">
         <div data-slot="month-view-weekdays">
-          {["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map((day) => (
+          {weekdayLabels.map((day) => (
             <div key={day} data-slot="month-weekday">
               {day}
             </div>
@@ -137,7 +177,6 @@ export default function MonthView({
                   onClick={() => {
                     setStartDate(week[0]);
                     setZoomLevel("week");
-                    openModalWithDate(week[0]);
                   }}
                   aria-label="Go to week"
                 >
@@ -155,6 +194,9 @@ export default function MonthView({
                   onDateClick={onDateClick}
                   updateTask={updateTask}
                   mapFromEvent={mapFromEvent}
+                  EventDetailModal={EventDetailModal}
+                  weekStartsOn={weekStartsOn}
+                  maxEventsPerDay={maxEventsPerDay}
                 />
               </div>
             ))}
@@ -163,12 +205,18 @@ export default function MonthView({
       {CreateEventModal ? (
         <CreateEventModal
           isOpen={isModalOpen}
-          onClose={() => setIsModalOpen(false)}
+          onClose={closeModal}
+          onSubmit={handleCreateSubmit}
+          initialStartDate={createInitialStart}
+          initialEndDate={createInitialEnd}
         />
       ) : (
         <CreateTaskModal
           isOpen={isModalOpen}
-          onClose={() => setIsModalOpen(false)}
+          onClose={closeModal}
+          onSubmit={handleCreateSubmit}
+          initialStartDate={createInitialStart}
+          initialEndDate={createInitialEnd}
         />
       )}
     </div>
