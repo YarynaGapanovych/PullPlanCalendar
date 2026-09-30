@@ -72,6 +72,7 @@ __export(index_exports, {
   WeekView: () => WeekView,
   YearView: () => YearView,
   applyWeekStartsOn: () => applyWeekStartsOn,
+  clampStartToWindow: () => clampStartToWindow,
   formatHourLabel: () => formatHourLabel,
   generateCalendarWeeks: () => generateCalendarWeeks,
   getEventsForDay: () => getEventsForDay,
@@ -86,6 +87,7 @@ __export(index_exports, {
   hhmmToMinutes: () => hhmmToMinutes,
   mapEventToTask: () => mapEventToTask,
   mapTaskToEvent: () => mapTaskToEvent,
+  minutesFromGridPointer: () => minutesFromGridPointer,
   parseHHMM: () => parseHHMM,
   snapMinutes: () => snapMinutes
 });
@@ -119,7 +121,7 @@ var SegmentedControl = ({
 // src/components/Calendar.tsx
 var import_core3 = require("@dnd-kit/core");
 var import_dayjs13 = __toESM(require("dayjs"));
-var import_react11 = require("react");
+var import_react12 = require("react");
 
 // src/hooks/useCalendarDragEnd.ts
 var import_react = require("react");
@@ -282,7 +284,7 @@ var getTasksForYear = (week, tasks, year) => {
 
 // src/components/DayView.tsx
 var import_dayjs7 = __toESM(require("dayjs"));
-var import_react5 = require("react");
+var import_react6 = require("react");
 
 // src/hooks/useCreateEventSubmit.ts
 var import_dayjs3 = __toESM(require("dayjs"));
@@ -344,6 +346,183 @@ function useCreateEventSubmit(scheduledEvents, setScheduledEvents, onEventCreate
   );
 }
 
+// src/hooks/useDelayedPointerDrag.ts
+var import_react4 = require("react");
+
+// src/utils/pointerDrag.ts
+var POINTER_DRAG_DELAY_MS = 250;
+var POINTER_DRAG_TOLERANCE_PX = 5;
+var POINTER_DRAG_MOUSE_DISTANCE_PX = 5;
+var RESIZE_HANDLE_WIDTH_PX = 20;
+function weekResizeHandleWidth(columnWidth) {
+  if (columnWidth <= 0) return RESIZE_HANDLE_WIDTH_PX;
+  return Math.min(RESIZE_HANDLE_WIDTH_PX, Math.max(8, columnWidth * 0.25));
+}
+function pointerDistance(a, b) {
+  return Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY);
+}
+function isTouchLikePointer(pointerType) {
+  return pointerType === "touch" || pointerType === "pen";
+}
+function pointInRect(x, y, rect) {
+  return x >= rect.left && x <= rect.right && y >= rect.top && y <= rect.bottom;
+}
+
+// src/hooks/useDelayedPointerDrag.ts
+function useDelayedPointerDrag(options) {
+  const optsRef = (0, import_react4.useRef)(options);
+  const sessionRef = (0, import_react4.useRef)(null);
+  const detachRef = (0, import_react4.useRef)(null);
+  const [isDragging, setIsDragging] = (0, import_react4.useState)(false);
+  (0, import_react4.useLayoutEffect)(() => {
+    optsRef.current = options;
+  }, [options]);
+  const clearSession = (0, import_react4.useCallback)((releaseCapture) => {
+    const session = sessionRef.current;
+    if (!session) return;
+    if (session.timer != null) {
+      clearTimeout(session.timer);
+      session.timer = null;
+    }
+    if (releaseCapture) {
+      session.target.style.touchAction = session.savedTouchAction;
+      try {
+        if (session.target.hasPointerCapture(session.pointerId)) {
+          session.target.releasePointerCapture(session.pointerId);
+        }
+      } catch (e) {
+      }
+    }
+    sessionRef.current = null;
+    setIsDragging(false);
+  }, []);
+  (0, import_react4.useEffect)(
+    () => () => {
+      var _a;
+      (_a = detachRef.current) == null ? void 0 : _a.call(detachRef);
+    },
+    []
+  );
+  const onPointerDown = (0, import_react4.useCallback)(
+    (event, payload) => {
+      var _a;
+      if (optsRef.current.disabled) return;
+      if (event.button !== 0) return;
+      (_a = detachRef.current) == null ? void 0 : _a.call(detachRef);
+      const target = event.currentTarget;
+      const nativeEvent = event.nativeEvent;
+      const touchLike = isTouchLikePointer(event.pointerType);
+      const session = {
+        payload,
+        pointerId: event.pointerId,
+        startX: event.clientX,
+        startY: event.clientY,
+        target,
+        activated: false,
+        aborted: false,
+        timer: null,
+        savedTouchAction: target.style.touchAction,
+        lastEvent: nativeEvent
+      };
+      sessionRef.current = session;
+      const activate = (e) => {
+        var _a2, _b;
+        const current = sessionRef.current;
+        if (!current || current.aborted || current.activated) return;
+        current.activated = true;
+        if (current.timer != null) {
+          clearTimeout(current.timer);
+          current.timer = null;
+        }
+        current.target.style.touchAction = "none";
+        try {
+          current.target.setPointerCapture(current.pointerId);
+        } catch (e2) {
+        }
+        setIsDragging(true);
+        (_b = (_a2 = optsRef.current).onDragStart) == null ? void 0 : _b.call(_a2, current.payload, e);
+      };
+      const onMove = (e) => {
+        var _a2, _b;
+        const current = sessionRef.current;
+        if (!current || e.pointerId !== current.pointerId) return;
+        current.lastEvent = e;
+        if (!current.activated) {
+          const dist = pointerDistance(e, {
+            clientX: current.startX,
+            clientY: current.startY
+          });
+          if (touchLike) {
+            if (dist > POINTER_DRAG_TOLERANCE_PX) {
+              current.aborted = true;
+              detach();
+              (_b = (_a2 = optsRef.current).onDragCancel) == null ? void 0 : _b.call(_a2, current.payload);
+            }
+            return;
+          }
+          if (dist >= POINTER_DRAG_MOUSE_DISTANCE_PX) {
+            activate(e);
+            optsRef.current.onDragMove(current.payload, e);
+          }
+          return;
+        }
+        if (e.cancelable) e.preventDefault();
+        optsRef.current.onDragMove(current.payload, e);
+      };
+      const onTouchMove = (e) => {
+        const current = sessionRef.current;
+        if (!(current == null ? void 0 : current.activated)) return;
+        if (e.cancelable) e.preventDefault();
+      };
+      const onUp = (e) => {
+        var _a2, _b, _c, _d;
+        const current = sessionRef.current;
+        if (!current || e.pointerId !== current.pointerId) return;
+        const activated = current.activated;
+        const aborted = current.aborted;
+        const payloadAtEnd = current.payload;
+        const canceled = e.type === "pointercancel";
+        detach();
+        if (activated && !canceled) {
+          optsRef.current.onDragEnd(payloadAtEnd, e);
+        } else if (!activated && !aborted && !canceled) {
+          (_b = (_a2 = optsRef.current).onPress) == null ? void 0 : _b.call(_a2, payloadAtEnd, e);
+        } else {
+          (_d = (_c = optsRef.current).onDragCancel) == null ? void 0 : _d.call(_c, payloadAtEnd);
+        }
+      };
+      const detach = () => {
+        window.removeEventListener("pointermove", onMove, true);
+        window.removeEventListener("pointerup", onUp, true);
+        window.removeEventListener("pointercancel", onUp, true);
+        window.removeEventListener("touchmove", onTouchMove, true);
+        detachRef.current = null;
+        clearSession(true);
+      };
+      detachRef.current = detach;
+      window.addEventListener("pointermove", onMove, {
+        capture: true,
+        passive: false
+      });
+      window.addEventListener("pointerup", onUp, { capture: true });
+      window.addEventListener("pointercancel", onUp, { capture: true });
+      window.addEventListener("touchmove", onTouchMove, {
+        capture: true,
+        passive: false
+      });
+      if (touchLike) {
+        session.timer = setTimeout(() => {
+          const current = sessionRef.current;
+          if (!current || current.aborted) return;
+          activate(current.lastEvent);
+        }, POINTER_DRAG_DELAY_MS);
+      }
+    },
+    [clearSession]
+  );
+  return { onPointerDown, isDragging };
+}
+
 // src/utils/eventDisplay.ts
 var import_dayjs4 = __toESM(require("dayjs"));
 function isAllDayLikeEvent(event) {
@@ -395,6 +574,25 @@ function snapMinutes(minutes, step = 15) {
   if (!Number.isFinite(minutes)) return 0;
   return Math.max(0, Math.round(minutes / step) * step);
 }
+function minutesFromGridPointer(clientY, scrollEl, hourRowHeight, step = 15) {
+  const rect = scrollEl.getBoundingClientRect();
+  const y = clientY - rect.top + scrollEl.scrollTop;
+  return snapMinutes(y / hourRowHeight * 60, step);
+}
+function clampStartToWindow(start, windowStart, windowEnd, durationMinutes) {
+  const duration = Math.max(durationMinutes, 1);
+  const lastStart = windowEnd.subtract(duration, "minute");
+  if (!lastStart.isAfter(windowStart)) {
+    return windowStart.clone();
+  }
+  if (start.isBefore(windowStart)) {
+    return windowStart.clone();
+  }
+  if (start.isAfter(lastStart)) {
+    return lastStart.clone();
+  }
+  return start;
+}
 function getVisibleHourRange(workdayStart, workdayEnd, showFullDay) {
   if (showFullDay) {
     return { startHour: 0, endHour: 24 };
@@ -425,7 +623,7 @@ function fromDatetimeLocalValue(value) {
 }
 
 // src/components/tasks/CreateTaskModal.tsx
-var import_react4 = require("react");
+var import_react5 = require("react");
 var import_jsx_runtime2 = require("react/jsx-runtime");
 function CreateTaskModal({
   isOpen,
@@ -436,26 +634,34 @@ function CreateTaskModal({
   initialEndDate,
   className
 }) {
-  const [taskName, setTaskName] = (0, import_react4.useState)("");
-  const [startDate, setStartDate] = (0, import_react4.useState)(
+  const [taskName, setTaskName] = (0, import_react5.useState)("");
+  const [startDate, setStartDate] = (0, import_react5.useState)(
     () => initialStartDate != null ? initialStartDate : null
   );
-  const [endDate, setEndDate] = (0, import_react4.useState)(
+  const [endDate, setEndDate] = (0, import_react5.useState)(
     () => initialEndDate != null ? initialEndDate : null
   );
-  const [isSubmitting, setIsSubmitting] = (0, import_react4.useState)(false);
+  const [isSubmitting, setIsSubmitting] = (0, import_react5.useState)(false);
+  const [startEditing, setStartEditing] = (0, import_react5.useState)(false);
+  const [endEditing, setEndEditing] = (0, import_react5.useState)(false);
   const datesSeeded = initialStartDate != null || initialEndDate != null;
   const datesPartial = startDate != null && endDate == null || startDate == null && endDate != null;
-  (0, import_react4.useEffect)(() => {
+  const startInputType = datesSeeded || startDate != null || startEditing ? "datetime-local" : "text";
+  const endInputType = datesSeeded || endDate != null || endEditing ? "datetime-local" : "text";
+  (0, import_react5.useEffect)(() => {
     if (!isOpen) return;
     setTaskName("");
     setStartDate(initialStartDate != null ? initialStartDate : null);
     setEndDate(initialEndDate != null ? initialEndDate : null);
+    setStartEditing(false);
+    setEndEditing(false);
   }, [isOpen]);
   const resetFields = () => {
     setTaskName("");
     setStartDate(null);
     setEndDate(null);
+    setStartEditing(false);
+    setEndEditing(false);
   };
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -520,8 +726,13 @@ function CreateTaskModal({
                 "input",
                 {
                   id: "startDate",
-                  type: "datetime-local",
+                  type: startInputType,
                   value: toDatetimeLocalValue(startDate),
+                  placeholder: "Not set",
+                  onFocus: () => setStartEditing(true),
+                  onBlur: () => {
+                    if (startDate == null) setStartEditing(false);
+                  },
                   onChange: (e) => setStartDate(fromDatetimeLocalValue(e.target.value)),
                   required: datesSeeded,
                   "data-slot": "create-task-start"
@@ -532,8 +743,13 @@ function CreateTaskModal({
                 "input",
                 {
                   id: "endDate",
-                  type: "datetime-local",
+                  type: endInputType,
                   value: toDatetimeLocalValue(endDate),
+                  placeholder: "Not set",
+                  onFocus: () => setEndEditing(true),
+                  onBlur: () => {
+                    if (endDate == null) setEndEditing(false);
+                  },
                   onChange: (e) => setEndDate(fromDatetimeLocalValue(e.target.value)),
                   required: datesSeeded,
                   min: toDatetimeLocalValue(startDate) || void 0,
@@ -655,22 +871,50 @@ function EventActionButtonSlot({
   );
 }
 
-// src/components/ui/Title.tsx
+// src/components/PointerDragGhost.tsx
 var import_jsx_runtime6 = require("react/jsx-runtime");
+function PointerDragGhost({
+  event,
+  x,
+  y
+}) {
+  return /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(
+    "div",
+    {
+      "data-slot": "pointer-drag-ghost",
+      style: getEventChipStyle(event, {
+        position: "fixed",
+        left: x,
+        top: y,
+        transform: "translate(-50%, -50%)",
+        pointerEvents: "none",
+        zIndex: 50,
+        padding: "0.25rem 0.75rem",
+        borderRadius: 9999,
+        opacity: 0.9,
+        boxShadow: "0 8px 16px rgba(15, 23, 42, 0.18)"
+      }),
+      children: event.title
+    }
+  );
+}
+
+// src/components/ui/Title.tsx
+var import_jsx_runtime7 = require("react/jsx-runtime");
 var TAG = { 1: "h1", 2: "h2", 3: "h3", 4: "h4", 5: "h5" };
 var Title = ({ level = 4, children, className }) => {
   const Comp = TAG[level];
-  return /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(Comp, { "data-slot": "title", "data-level": level, className, children });
+  return /* @__PURE__ */ (0, import_jsx_runtime7.jsx)(Comp, { "data-slot": "title", "data-level": level, className, children });
 };
 
 // src/components/ui/Tooltip.tsx
-var import_jsx_runtime7 = require("react/jsx-runtime");
+var import_jsx_runtime8 = require("react/jsx-runtime");
 var Tooltip = ({ title, children, className }) => {
-  return /* @__PURE__ */ (0, import_jsx_runtime7.jsx)("div", { "data-slot": "tooltip", className, title, children });
+  return /* @__PURE__ */ (0, import_jsx_runtime8.jsx)("div", { "data-slot": "tooltip", className, title, children });
 };
 
 // src/components/DayView.tsx
-var import_jsx_runtime8 = require("react/jsx-runtime");
+var import_jsx_runtime9 = require("react/jsx-runtime");
 var MIN_EVENT_HEIGHT_PX = 24;
 var HOUR_ROW_HEIGHT = 48;
 function isFullDayEvent(event, dayStart, dayEnd) {
@@ -725,15 +969,26 @@ function DayView({
   style
 }) {
   var _a, _b;
-  const [isTaskOpen, setIsTaskOpen] = (0, import_react5.useState)(false);
-  const [isCreateTaskOpen, setIsCreateTaskOpen] = (0, import_react5.useState)(false);
-  const [selectedEvent, setSelectedEvent] = (0, import_react5.useState)(
+  const [isTaskOpen, setIsTaskOpen] = (0, import_react6.useState)(false);
+  const [isCreateTaskOpen, setIsCreateTaskOpen] = (0, import_react6.useState)(false);
+  const [selectedEvent, setSelectedEvent] = (0, import_react6.useState)(
     null
   );
-  const [createSeedStart, setCreateSeedStart] = (0, import_react5.useState)(null);
-  const [createSeedEnd, setCreateSeedEnd] = (0, import_react5.useState)(null);
-  const gridScrollRef = (0, import_react5.useRef)(null);
-  const dayEventsRef = (0, import_react5.useRef)(null);
+  const [createSeedStart, setCreateSeedStart] = (0, import_react6.useState)(null);
+  const [createSeedEnd, setCreateSeedEnd] = (0, import_react6.useState)(null);
+  const [dropPreview, setDropPreview] = (0, import_react6.useState)(null);
+  const [moving, setMoving] = (0, import_react6.useState)(null);
+  const [movePreviewTopPx, setMovePreviewTopPx] = (0, import_react6.useState)(null);
+  const [draggingUnscheduled, setDraggingUnscheduled] = (0, import_react6.useState)(null);
+  const [dragPointer, setDragPointer] = (0, import_react6.useState)(null);
+  const gridScrollRef = (0, import_react6.useRef)(null);
+  const movePreviewRef = (0, import_react6.useRef)({
+    topPx: 0,
+    active: false
+  });
+  const skipClickAfterMoveRef = (0, import_react6.useRef)(false);
+  const dropPreviewRef = (0, import_react6.useRef)(null);
+  const movingRef = (0, import_react6.useRef)(null);
   const openTask = () => setIsTaskOpen(true);
   const closeTask = () => {
     setIsTaskOpen(false);
@@ -763,53 +1018,53 @@ function DayView({
     setCreateSeedEnd(end);
     setIsCreateTaskOpen(true);
   };
-  const dayTitle = (0, import_react5.useMemo)(
+  const dayTitle = (0, import_react6.useMemo)(
     () => startDate.format("dddd, MMM D, YYYY"),
     [startDate]
   );
-  const { startHour, endHour } = (0, import_react5.useMemo)(
+  const { startHour, endHour } = (0, import_react6.useMemo)(
     () => getVisibleHourRange(workdayStart, workdayEnd, showFullDay),
     [workdayStart, workdayEnd, showFullDay]
   );
-  const hours = (0, import_react5.useMemo)(
+  const hours = (0, import_react6.useMemo)(
     () => Array.from({ length: endHour - startHour }, (_, i) => startHour + i),
     [startHour, endHour]
   );
   const hourCount = hours.length;
-  const dayStart = (0, import_react5.useMemo)(() => startDate.startOf("day"), [startDate]);
-  const dayEnd = (0, import_react5.useMemo)(() => startDate.endOf("day"), [startDate]);
-  const windowStart = (0, import_react5.useMemo)(
+  const dayStart = (0, import_react6.useMemo)(() => startDate.startOf("day"), [startDate]);
+  const dayEnd = (0, import_react6.useMemo)(() => startDate.endOf("day"), [startDate]);
+  const windowStart = (0, import_react6.useMemo)(
     () => dayStart.add(startHour, "hour"),
     [dayStart, startHour]
   );
-  const windowEnd = (0, import_react5.useMemo)(
+  const windowEnd = (0, import_react6.useMemo)(
     () => dayStart.add(endHour, "hour"),
     [dayStart, endHour]
   );
   const workdayStartMin = hhmmToMinutes(workdayStart, 9 * 60);
   const workdayEndMin = hhmmToMinutes(workdayEnd, 17 * 60);
-  const [now, setNow] = (0, import_react5.useState)(() => (0, import_dayjs7.default)());
+  const [now, setNow] = (0, import_react6.useState)(() => (0, import_dayjs7.default)());
   const isViewingToday = startDate.isSame(now, "day");
-  (0, import_react5.useEffect)(() => {
+  (0, import_react6.useEffect)(() => {
     if (!isViewingToday) return;
     const t = setInterval(() => setNow((0, import_dayjs7.default)()), 6e4);
     return () => clearInterval(t);
   }, [isViewingToday]);
-  (0, import_react5.useEffect)(() => {
+  (0, import_react6.useEffect)(() => {
     if (!isViewingToday || !gridScrollRef.current) return;
     const current = (0, import_dayjs7.default)();
     if (current.isBefore(windowStart) || !current.isBefore(windowEnd)) return;
     const top = current.diff(windowStart, "minute") * (HOUR_ROW_HEIGHT / 60) - HOUR_ROW_HEIGHT * 2;
     gridScrollRef.current.scrollTop = Math.max(0, top);
   }, [isViewingToday, startDate, windowStart, windowEnd]);
-  const eventsForDay = (0, import_react5.useMemo)(() => {
+  const eventsForDay = (0, import_react6.useMemo)(() => {
     return scheduledEvents.filter((event) => {
       const eventStart = (0, import_dayjs7.default)(event.start);
       const eventEnd = (0, import_dayjs7.default)(event.end);
       return (eventStart.isSame(dayStart) || eventStart.isBefore(dayEnd)) && (eventEnd.isSame(dayEnd) || eventEnd.isAfter(dayStart));
     });
   }, [scheduledEvents, dayStart, dayEnd]);
-  const { fullDayEvents, timedEvents } = (0, import_react5.useMemo)(() => {
+  const { fullDayEvents, timedEvents } = (0, import_react6.useMemo)(() => {
     const full = [];
     const timed = [];
     for (const event of eventsForDay) {
@@ -842,40 +1097,72 @@ function DayView({
     if (readOnly) return;
     void openCreateTask(dayStart.hour(hour).minute(0).second(0).millisecond(0));
   };
+  const eventDurationMinutes = (0, import_react6.useCallback)(
+    (event) => {
+      const oldStart = (0, import_dayjs7.default)(event.start);
+      const oldEnd = (0, import_dayjs7.default)(event.end);
+      const existingDuration = oldEnd.diff(oldStart, "minute");
+      if (!isAllDayLikeEvent(event) && existingDuration > 0) {
+        return existingDuration;
+      }
+      return defaultDurationMinutes;
+    },
+    [defaultDurationMinutes]
+  );
+  const startFromPointer = (0, import_react6.useCallback)(
+    (clientY, durationMinutes) => {
+      const scrollEl = gridScrollRef.current;
+      if (!scrollEl) return null;
+      const minutesFromWindow = minutesFromGridPointer(
+        clientY,
+        scrollEl,
+        HOUR_ROW_HEIGHT
+      );
+      const rawStart = windowStart.add(minutesFromWindow, "minute");
+      return clampStartToWindow(
+        rawStart,
+        windowStart,
+        windowEnd,
+        durationMinutes
+      );
+    },
+    [windowStart, windowEnd]
+  );
+  const dropPreviewFromPointer = (0, import_react6.useCallback)(
+    (event, clientY) => {
+      const durationMinutes = eventDurationMinutes(event);
+      const newStart = startFromPointer(clientY, durationMinutes);
+      if (!newStart) return null;
+      const topPx = newStart.diff(windowStart, "minute") * (HOUR_ROW_HEIGHT / 60);
+      const heightPx = Math.max(
+        MIN_EVENT_HEIGHT_PX,
+        durationMinutes * (HOUR_ROW_HEIGHT / 60)
+      );
+      return { topPx, heightPx, start: newStart };
+    },
+    [eventDurationMinutes, startFromPointer, windowStart]
+  );
+  const clearDropPreview = (0, import_react6.useCallback)(() => {
+    dropPreviewRef.current = null;
+    setDropPreview(null);
+  }, []);
   const handleEventsColumnClick = (e) => {
-    var _a2, _b2;
     if (readOnly) return;
+    if (skipClickAfterMoveRef.current) {
+      skipClickAfterMoveRef.current = false;
+      return;
+    }
     if (e.target.closest('[data-slot="event"]')) return;
-    const el = dayEventsRef.current;
-    if (!el) return;
-    const rect = el.getBoundingClientRect();
-    const y = e.clientY - rect.top + ((_b2 = (_a2 = gridScrollRef.current) == null ? void 0 : _a2.scrollTop) != null ? _b2 : 0);
-    const minutesFromWindow = snapMinutes(y / HOUR_ROW_HEIGHT * 60);
-    const at = windowStart.add(minutesFromWindow, "minute");
+    const at = startFromPointer(e.clientY, defaultDurationMinutes);
+    if (!at) return;
     if (at.isBefore(windowStart) || !at.isBefore(windowEnd)) return;
     void openCreateTask(at);
   };
-  const handleUnassignedEventDrop = (0, import_react5.useCallback)(
-    (event, clientY) => {
+  const handleUnassignedEventDrop = (0, import_react6.useCallback)(
+    (event, newStart) => {
       const oldStart = (0, import_dayjs7.default)(event.start);
       const oldEnd = (0, import_dayjs7.default)(event.end);
-      let newStart = dayStart.add(workdayStartMin, "minute").second(0).millisecond(0);
-      if (clientY != null && dayEventsRef.current && gridScrollRef.current) {
-        const rect = dayEventsRef.current.getBoundingClientRect();
-        if (clientY >= rect.top && clientY <= rect.bottom) {
-          const y = clientY - rect.top + gridScrollRef.current.scrollTop;
-          const minutesFromWindow = snapMinutes(y / HOUR_ROW_HEIGHT * 60);
-          newStart = windowStart.add(minutesFromWindow, "minute");
-          if (newStart.isBefore(windowStart)) newStart = windowStart.clone();
-          const lastStart = windowEnd.subtract(
-            defaultDurationMinutes,
-            "minute"
-          );
-          if (newStart.isAfter(lastStart)) newStart = lastStart;
-        }
-      }
-      const existingDuration = oldEnd.diff(oldStart, "minute");
-      const durationMinutes = !isAllDayLikeEvent(event) && existingDuration > 0 ? existingDuration : defaultDurationMinutes;
+      const durationMinutes = eventDurationMinutes(event);
       const newEnd = newStart.add(durationMinutes, "minute");
       const updatedEvent = __spreadProps(__spreadValues({}, event), {
         start: newStart,
@@ -904,11 +1191,7 @@ function DayView({
       }
     },
     [
-      windowStart,
-      windowEnd,
-      dayStart,
-      workdayStartMin,
-      defaultDurationMinutes,
+      eventDurationMinutes,
       scheduledEvents,
       unscheduledEvents,
       setScheduledEvents,
@@ -916,6 +1199,142 @@ function DayView({
       onEventMove
     ]
   );
+  const updateTimedMovePreview = (0, import_react6.useCallback)(
+    (clientY) => {
+      const current = movingRef.current;
+      if (!current) return;
+      const rawTop = current.originTopPx + (clientY - current.startClientY);
+      const minutesFromTop = snapMinutes(rawTop / HOUR_ROW_HEIGHT * 60);
+      const rawStart = windowStart.add(minutesFromTop, "minute");
+      const newStart = clampStartToWindow(
+        rawStart,
+        windowStart,
+        windowEnd,
+        current.durationMinutes
+      );
+      const topPx = newStart.diff(windowStart, "minute") * (HOUR_ROW_HEIGHT / 60);
+      movePreviewRef.current = { topPx, active: true };
+      setMovePreviewTopPx(topPx);
+    },
+    [windowStart, windowEnd]
+  );
+  const commitTimedMove = (0, import_react6.useCallback)(() => {
+    const current = movingRef.current;
+    const preview = movePreviewRef.current;
+    movingRef.current = null;
+    setMoving(null);
+    setMovePreviewTopPx(null);
+    movePreviewRef.current = { topPx: 0, active: false };
+    if (!current || !preview.active) return;
+    skipClickAfterMoveRef.current = true;
+    const evt = scheduledEvents.find((item) => item.id === current.eventId);
+    if (!evt) return;
+    const minutesFromWindow = Math.round(
+      preview.topPx / (HOUR_ROW_HEIGHT / 60)
+    );
+    const newStart = windowStart.add(minutesFromWindow, "minute").second(0).millisecond(0);
+    const newEnd = newStart.add(current.durationMinutes, "minute");
+    const oldStart = (0, import_dayjs7.default)(evt.start);
+    const oldEnd = (0, import_dayjs7.default)(evt.end);
+    if (oldStart.isSame(newStart) && oldEnd.isSame(newEnd)) return;
+    const updatedEvent = __spreadProps(__spreadValues({}, evt), {
+      start: newStart,
+      end: newEnd
+    });
+    const prevScheduled = [...scheduledEvents];
+    setScheduledEvents(
+      (prev) => prev.map((item) => item.id === current.eventId ? updatedEvent : item)
+    );
+    if (onEventMove) {
+      void (async () => {
+        try {
+          await onEventMove({
+            id: current.eventId,
+            start: newStart,
+            end: newEnd,
+            oldStart,
+            oldEnd,
+            view: "day"
+          });
+        } catch (e) {
+          setScheduledEvents(prevScheduled);
+        }
+      })();
+    }
+  }, [scheduledEvents, setScheduledEvents, onEventMove, windowStart]);
+  const { onPointerDown: onTimedPointerDown } = useDelayedPointerDrag({
+    disabled: readOnly,
+    onDragStart: ({ event, originTopPx }, e) => {
+      const session = {
+        eventId: event.id,
+        startClientY: e.clientY,
+        originTopPx,
+        durationMinutes: eventDurationMinutes(event)
+      };
+      movingRef.current = session;
+      setMoving(session);
+    },
+    onDragMove: (_payload, e) => {
+      updateTimedMovePreview(e.clientY);
+    },
+    onDragEnd: () => {
+      commitTimedMove();
+    },
+    onDragCancel: () => {
+      movingRef.current = null;
+      setMoving(null);
+      setMovePreviewTopPx(null);
+      movePreviewRef.current = { topPx: 0, active: false };
+    }
+  });
+  const { onPointerDown: onUnscheduledPointerDown } = useDelayedPointerDrag({
+    disabled: readOnly,
+    onDragStart: (event, e) => {
+      setDraggingUnscheduled(event);
+      setDragPointer({ x: e.clientX, y: e.clientY });
+      const grid = gridScrollRef.current;
+      if (!grid || !pointInRect(e.clientX, e.clientY, grid.getBoundingClientRect())) {
+        clearDropPreview();
+        return;
+      }
+      const preview = dropPreviewFromPointer(event, e.clientY);
+      dropPreviewRef.current = preview;
+      setDropPreview(
+        preview ? { topPx: preview.topPx, heightPx: preview.heightPx } : null
+      );
+    },
+    onDragMove: (event, e) => {
+      setDragPointer({ x: e.clientX, y: e.clientY });
+      const grid = gridScrollRef.current;
+      if (!grid || !pointInRect(e.clientX, e.clientY, grid.getBoundingClientRect())) {
+        clearDropPreview();
+        return;
+      }
+      const preview = dropPreviewFromPointer(event, e.clientY);
+      dropPreviewRef.current = preview;
+      setDropPreview(
+        preview ? { topPx: preview.topPx, heightPx: preview.heightPx } : null
+      );
+    },
+    onDragEnd: (event) => {
+      const preview = dropPreviewRef.current;
+      setDraggingUnscheduled(null);
+      setDragPointer(null);
+      clearDropPreview();
+      skipClickAfterMoveRef.current = true;
+      if (!preview) return;
+      handleUnassignedEventDrop(event, preview.start);
+    },
+    onDragCancel: () => {
+      clearDropPreview();
+      setDraggingUnscheduled(null);
+      setDragPointer(null);
+    },
+    onPress: (event, e) => {
+      if (!isTouchLikePointer(e.pointerType)) return;
+      void handleOpenEvent(event);
+    }
+  });
   const handleCreateSubmit = useCreateEventSubmit(
     scheduledEvents,
     setScheduledEvents,
@@ -925,9 +1344,9 @@ function DayView({
     setUnscheduledEvents
   );
   const showNowLine = isViewingToday && !now.isBefore(windowStart) && now.isBefore(windowEnd);
-  return /* @__PURE__ */ (0, import_jsx_runtime8.jsxs)("div", { "data-slot": "day-view", className, style, children: [
-    /* @__PURE__ */ (0, import_jsx_runtime8.jsxs)("div", { "data-slot": "day-view-nav", children: [
-      /* @__PURE__ */ (0, import_jsx_runtime8.jsx)(
+  return /* @__PURE__ */ (0, import_jsx_runtime9.jsxs)("div", { "data-slot": "day-view", className, style, children: [
+    /* @__PURE__ */ (0, import_jsx_runtime9.jsxs)("div", { "data-slot": "day-view-nav", children: [
+      /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(
         Button,
         {
           type: "button",
@@ -936,8 +1355,8 @@ function DayView({
           children: previousDayButtonContent
         }
       ),
-      /* @__PURE__ */ (0, import_jsx_runtime8.jsx)(Title, { level: 4, children: dayTitle }),
-      /* @__PURE__ */ (0, import_jsx_runtime8.jsx)(
+      /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(Title, { level: 4, children: dayTitle }),
+      /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(
         Button,
         {
           type: "button",
@@ -949,13 +1368,13 @@ function DayView({
           children: todayButtonContent
         }
       ),
-      /* @__PURE__ */ (0, import_jsx_runtime8.jsx)(Button, { type: "button", onClick: handleNextDay, "aria-label": "Next day", children: nextDayButtonContent })
+      /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(Button, { type: "button", onClick: handleNextDay, "aria-label": "Next day", children: nextDayButtonContent })
     ] }),
-    fullDayEvents.length > 0 && /* @__PURE__ */ (0, import_jsx_runtime8.jsxs)("div", { "data-slot": "day-multiday", children: [
-      /* @__PURE__ */ (0, import_jsx_runtime8.jsx)("h3", { "data-slot": "day-multiday-title", children: "All-day / multi-day" }),
-      /* @__PURE__ */ (0, import_jsx_runtime8.jsx)("div", { "data-slot": "day-multiday-items", children: fullDayEvents.map((event) => {
+    fullDayEvents.length > 0 && /* @__PURE__ */ (0, import_jsx_runtime9.jsxs)("div", { "data-slot": "day-multiday", children: [
+      /* @__PURE__ */ (0, import_jsx_runtime9.jsx)("h3", { "data-slot": "day-multiday-title", children: "All-day / multi-day" }),
+      /* @__PURE__ */ (0, import_jsx_runtime9.jsx)("div", { "data-slot": "day-multiday-items", children: fullDayEvents.map((event) => {
         var _a2;
-        return /* @__PURE__ */ (0, import_jsx_runtime8.jsxs)(
+        return /* @__PURE__ */ (0, import_jsx_runtime9.jsxs)(
           "div",
           {
             "data-slot": "event",
@@ -964,8 +1383,8 @@ function DayView({
             "data-color": (_a2 = event.color) != null ? _a2 : void 0,
             style: getEventChipStyle(event),
             children: [
-              /* @__PURE__ */ (0, import_jsx_runtime8.jsx)("span", { children: event.title }),
-              /* @__PURE__ */ (0, import_jsx_runtime8.jsx)(
+              /* @__PURE__ */ (0, import_jsx_runtime9.jsx)("span", { children: event.title }),
+              /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(
                 EventActionButtonSlot,
                 {
                   event,
@@ -979,7 +1398,7 @@ function DayView({
         );
       }) })
     ] }),
-    /* @__PURE__ */ (0, import_jsx_runtime8.jsxs)(
+    /* @__PURE__ */ (0, import_jsx_runtime9.jsxs)(
       "div",
       {
         ref: gridScrollRef,
@@ -995,7 +1414,7 @@ function DayView({
           hours.map((hour, index) => {
             const minuteOfDay = hour * 60;
             const outsideWork = showFullDay && (minuteOfDay < workdayStartMin || minuteOfDay >= workdayEndMin);
-            return /* @__PURE__ */ (0, import_jsx_runtime8.jsx)(
+            return /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(
               "div",
               {
                 "data-slot": outsideWork ? "day-hour-outside-workday" : "day-hour",
@@ -1021,10 +1440,9 @@ function DayView({
               hour
             );
           }),
-          /* @__PURE__ */ (0, import_jsx_runtime8.jsxs)(
+          /* @__PURE__ */ (0, import_jsx_runtime9.jsxs)(
             "div",
             {
-              ref: dayEventsRef,
               "data-slot": "day-events",
               onClick: handleEventsColumnClick,
               style: {
@@ -1036,7 +1454,38 @@ function DayView({
                 cursor: readOnly ? "default" : "pointer"
               },
               children: [
-                showNowLine && /* @__PURE__ */ (0, import_jsx_runtime8.jsx)(
+                dropPreview != null && /* @__PURE__ */ (0, import_jsx_runtime9.jsxs)(import_jsx_runtime9.Fragment, { children: [
+                  /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(
+                    "div",
+                    {
+                      "data-slot": "day-drop-preview",
+                      "aria-hidden": true,
+                      style: { top: dropPreview.topPx }
+                    }
+                  ),
+                  draggingUnscheduled && /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(
+                    "div",
+                    {
+                      "data-slot": "day-drop-preview-event",
+                      "aria-hidden": true,
+                      style: getEventChipStyle(draggingUnscheduled, {
+                        position: "absolute",
+                        left: 4,
+                        right: 4,
+                        top: dropPreview.topPx,
+                        height: dropPreview.heightPx,
+                        boxSizing: "border-box",
+                        padding: "2px 6px",
+                        overflow: "hidden",
+                        pointerEvents: "none",
+                        opacity: 0.85,
+                        zIndex: 3
+                      }),
+                      children: draggingUnscheduled.title
+                    }
+                  )
+                ] }),
+                showNowLine && /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(
                   "div",
                   {
                     "data-slot": "day-now-line",
@@ -1053,7 +1502,7 @@ function DayView({
                     }
                   }
                 ),
-                timedEvents.length === 0 ? /* @__PURE__ */ (0, import_jsx_runtime8.jsx)(
+                timedEvents.length === 0 ? /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(
                   "p",
                   {
                     "data-slot": "day-no-events",
@@ -1078,32 +1527,41 @@ function DayView({
                   );
                   if (!pos) return null;
                   const timeLabel = formatEventTimeLabel(event);
-                  return /* @__PURE__ */ (0, import_jsx_runtime8.jsxs)(
+                  const isMoving = (moving == null ? void 0 : moving.eventId) === event.id;
+                  const topPx = isMoving && movePreviewTopPx != null ? movePreviewTopPx : pos.topPx;
+                  return /* @__PURE__ */ (0, import_jsx_runtime9.jsxs)(
                     "div",
                     {
                       "data-slot": "event",
                       "data-event-id": event.id,
                       "data-color": (_a2 = event.color) != null ? _a2 : void 0,
+                      "data-moving": isMoving ? "" : void 0,
+                      onPointerDown: (e) => {
+                        if (e.target.closest("button")) return;
+                        onTimedPointerDown(e, { event, originTopPx: pos.topPx });
+                      },
                       style: getEventChipStyle(event, {
                         position: "absolute",
                         left: 4,
                         right: 4,
-                        top: pos.topPx,
+                        top: topPx,
                         height: pos.heightPx,
                         boxSizing: "border-box",
                         padding: "2px 6px",
                         overflow: "hidden",
-                        cursor: "pointer"
+                        cursor: readOnly ? "default" : isMoving && movePreviewTopPx != null ? "grabbing" : "grab",
+                        userSelect: "none",
+                        zIndex: isMoving && movePreviewTopPx != null ? 4 : void 0
                       }),
                       children: [
-                        /* @__PURE__ */ (0, import_jsx_runtime8.jsxs)("span", { children: [
-                          timeLabel ? /* @__PURE__ */ (0, import_jsx_runtime8.jsxs)("span", { "data-slot": "event-time", children: [
+                        /* @__PURE__ */ (0, import_jsx_runtime9.jsxs)("span", { children: [
+                          timeLabel ? /* @__PURE__ */ (0, import_jsx_runtime9.jsxs)("span", { "data-slot": "event-time", children: [
                             timeLabel,
                             " "
                           ] }) : null,
                           event.title
                         ] }),
-                        /* @__PURE__ */ (0, import_jsx_runtime8.jsx)(
+                        /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(
                           EventActionButtonSlot,
                           {
                             event,
@@ -1122,9 +1580,9 @@ function DayView({
         ]
       }
     ),
-    /* @__PURE__ */ (0, import_jsx_runtime8.jsxs)("div", { "data-slot": "unscheduled-list", children: [
-      /* @__PURE__ */ (0, import_jsx_runtime8.jsx)("h3", { "data-slot": "unscheduled-title", children: (_a = labels == null ? void 0 : labels.unscheduledTitle) != null ? _a : "Unscheduled events" }),
-      !readOnly && (AddEventButton ? /* @__PURE__ */ (0, import_jsx_runtime8.jsx)(AddEventButton, { onClick: openUnscheduledCreate }) : /* @__PURE__ */ (0, import_jsx_runtime8.jsx)(Tooltip, { title: "Add new event", children: /* @__PURE__ */ (0, import_jsx_runtime8.jsx)(
+    /* @__PURE__ */ (0, import_jsx_runtime9.jsxs)("div", { "data-slot": "unscheduled-list", children: [
+      /* @__PURE__ */ (0, import_jsx_runtime9.jsx)("h3", { "data-slot": "unscheduled-title", children: (_a = labels == null ? void 0 : labels.unscheduledTitle) != null ? _a : "Unscheduled events" }),
+      !readOnly && (AddEventButton ? /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(AddEventButton, { onClick: openUnscheduledCreate }) : /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(Tooltip, { title: "Add new event", children: /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(
         Button,
         {
           type: "button",
@@ -1133,7 +1591,7 @@ function DayView({
           children: "+"
         }
       ) })),
-      CreateEventModal ? /* @__PURE__ */ (0, import_jsx_runtime8.jsx)(
+      CreateEventModal ? /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(
         CreateEventModal,
         {
           isOpen: isCreateTaskOpen,
@@ -1142,7 +1600,7 @@ function DayView({
           initialStartDate: createSeedStart,
           initialEndDate: createSeedEnd
         }
-      ) : /* @__PURE__ */ (0, import_jsx_runtime8.jsx)(
+      ) : /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(
         CreateTaskModal,
         {
           isOpen: isCreateTaskOpen,
@@ -1152,28 +1610,34 @@ function DayView({
           initialEndDate: createSeedEnd
         }
       ),
-      /* @__PURE__ */ (0, import_jsx_runtime8.jsx)("div", { "data-slot": "unscheduled-items", children: unscheduledEvents.map((event) => {
+      /* @__PURE__ */ (0, import_jsx_runtime9.jsx)("div", { "data-slot": "unscheduled-items", children: unscheduledEvents.map((event) => {
         var _a2;
-        return /* @__PURE__ */ (0, import_jsx_runtime8.jsx)(
+        return /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(
           "div",
           {
             "data-slot": "unscheduled-event",
             "data-event-id": event.id,
             "data-color": (_a2 = event.color) != null ? _a2 : void 0,
+            "data-dragging": (draggingUnscheduled == null ? void 0 : draggingUnscheduled.id) === event.id ? "" : void 0,
             style: getEventChipStyle(event),
-            draggable: !readOnly,
-            onDragEnd: (e) => {
-              if (!readOnly) handleUnassignedEventDrop(event, e.clientY);
-            },
+            onPointerDown: (e) => onUnscheduledPointerDown(e, event),
             onDoubleClick: () => handleOpenEvent(event),
             children: event.title
           },
           event.id
         );
       }) }),
-      unscheduledEvents.length > 0 && !readOnly && /* @__PURE__ */ (0, import_jsx_runtime8.jsx)("p", { "data-slot": "unscheduled-hint", children: (_b = labels == null ? void 0 : labels.unscheduledHint) != null ? _b : "Drag an event onto a time above to schedule it, or double-click to view." })
+      unscheduledEvents.length > 0 && !readOnly && /* @__PURE__ */ (0, import_jsx_runtime9.jsx)("p", { "data-slot": "unscheduled-hint", children: (_b = labels == null ? void 0 : labels.unscheduledHint) != null ? _b : "Drag an event onto a time above to schedule it, or double-click to view." })
     ] }),
-    selectedEvent && (EventDetailModal ? /* @__PURE__ */ (0, import_jsx_runtime8.jsx)(
+    draggingUnscheduled && dragPointer && dropPreview == null && /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(
+      PointerDragGhost,
+      {
+        event: draggingUnscheduled,
+        x: dragPointer.x,
+        y: dragPointer.y
+      }
+    ),
+    selectedEvent && (EventDetailModal ? /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(
       EventDetailModal,
       {
         task: mapFromEvent ? mapFromEvent(selectedEvent) : {
@@ -1187,7 +1651,7 @@ function DayView({
         onClose: closeTask,
         updateTask
       }
-    ) : mapFromEvent ? /* @__PURE__ */ (0, import_jsx_runtime8.jsx)(
+    ) : mapFromEvent ? /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(
       TaskModal,
       {
         task: mapFromEvent(selectedEvent),
@@ -1201,20 +1665,20 @@ function DayView({
 
 // src/components/MonthView.tsx
 var import_dayjs9 = __toESM(require("dayjs"));
-var import_react7 = require("react");
+var import_react8 = require("react");
 
 // src/components/Week.tsx
 var import_dayjs8 = __toESM(require("dayjs"));
-var import_react6 = require("react");
+var import_react7 = require("react");
 
 // src/components/ui/Text.tsx
-var import_jsx_runtime9 = require("react/jsx-runtime");
+var import_jsx_runtime10 = require("react/jsx-runtime");
 var Text = ({ children, className }) => {
-  return /* @__PURE__ */ (0, import_jsx_runtime9.jsx)("span", { "data-slot": "text", className, children });
+  return /* @__PURE__ */ (0, import_jsx_runtime10.jsx)("span", { "data-slot": "text", className, children });
 };
 
 // src/components/Week.tsx
-var import_jsx_runtime10 = require("react/jsx-runtime");
+var import_jsx_runtime11 = require("react/jsx-runtime");
 function Week({
   days,
   events,
@@ -1232,14 +1696,14 @@ function Week({
   weekStartsOn = 0,
   maxEventsPerDay = 3
 }) {
-  const [isTaskOpen, setIsTaskOpen] = (0, import_react6.useState)(false);
-  const [selectedEvent, setSelectedEvent] = (0, import_react6.useState)(
+  const [isTaskOpen, setIsTaskOpen] = (0, import_react7.useState)(false);
+  const [selectedEvent, setSelectedEvent] = (0, import_react7.useState)(
     null
   );
-  const [moreDayKey, setMoreDayKey] = (0, import_react6.useState)(null);
-  const morePopoverRef = (0, import_react6.useRef)(null);
+  const [moreDayKey, setMoreDayKey] = (0, import_react7.useState)(null);
+  const morePopoverRef = (0, import_react7.useRef)(null);
   const usePerDayLayout = view === "month" || view === "year" || isMonthView;
-  (0, import_react6.useEffect)(() => {
+  (0, import_react7.useEffect)(() => {
     if (!moreDayKey) return;
     const onDocClick = (e) => {
       if (morePopoverRef.current && !morePopoverRef.current.contains(e.target)) {
@@ -1287,16 +1751,16 @@ function Week({
   const renderDayHeader = (day, index) => {
     const isCurrentMonth = day.month() === currentMonth;
     if (!isCurrentMonth) {
-      return /* @__PURE__ */ (0, import_jsx_runtime10.jsx)("div", { "data-slot": "week-day-spacer" }, `empty-${index}`);
+      return /* @__PURE__ */ (0, import_jsx_runtime11.jsx)("div", { "data-slot": "week-day-spacer" }, `empty-${index}`);
     }
-    return /* @__PURE__ */ (0, import_jsx_runtime10.jsxs)(
+    return /* @__PURE__ */ (0, import_jsx_runtime11.jsxs)(
       "div",
       {
         "data-slot": "week-day",
         "data-date": day.format("YYYY-MM-DD"),
         children: [
-          /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(Text, { children: day.format("D") }),
-          !readOnly && /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(Tooltip, { title: "Add event", children: /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(
+          /* @__PURE__ */ (0, import_jsx_runtime11.jsx)(Text, { children: day.format("D") }),
+          !readOnly && /* @__PURE__ */ (0, import_jsx_runtime11.jsx)(Tooltip, { title: "Add event", children: /* @__PURE__ */ (0, import_jsx_runtime11.jsx)(
             Button,
             {
               type: "button",
@@ -1316,23 +1780,23 @@ function Week({
   const renderPerDayCell = (day, index) => {
     const isCurrentMonth = day.month() === currentMonth;
     if (!isCurrentMonth) {
-      return /* @__PURE__ */ (0, import_jsx_runtime10.jsx)("div", { "data-slot": "week-day-spacer" }, `empty-cell-${index}`);
+      return /* @__PURE__ */ (0, import_jsx_runtime11.jsx)("div", { "data-slot": "week-day-spacer" }, `empty-cell-${index}`);
     }
     const dayKey = day.format("YYYY-MM-DD");
     const dayEvents = getEventsForDay(day, events);
     const visible = dayEvents.slice(0, maxEventsPerDay);
     const overflow = dayEvents.length - visible.length;
     const showMore = moreDayKey === dayKey;
-    return /* @__PURE__ */ (0, import_jsx_runtime10.jsxs)(
+    return /* @__PURE__ */ (0, import_jsx_runtime11.jsxs)(
       "div",
       {
         "data-slot": "week-day-cell",
         "data-date": dayKey,
         style: { position: "relative", minWidth: 0 },
         children: [
-          /* @__PURE__ */ (0, import_jsx_runtime10.jsxs)("div", { "data-slot": "week-day", children: [
-            /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(Text, { children: day.format("D") }),
-            !readOnly && /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(Tooltip, { title: "Add event", children: /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(
+          /* @__PURE__ */ (0, import_jsx_runtime11.jsxs)("div", { "data-slot": "week-day", children: [
+            /* @__PURE__ */ (0, import_jsx_runtime11.jsx)(Text, { children: day.format("D") }),
+            !readOnly && /* @__PURE__ */ (0, import_jsx_runtime11.jsx)(Tooltip, { title: "Add event", children: /* @__PURE__ */ (0, import_jsx_runtime11.jsx)(
               Button,
               {
                 type: "button",
@@ -1345,11 +1809,11 @@ function Week({
               }
             ) })
           ] }),
-          /* @__PURE__ */ (0, import_jsx_runtime10.jsxs)("div", { "data-slot": "week-day-events", children: [
+          /* @__PURE__ */ (0, import_jsx_runtime11.jsxs)("div", { "data-slot": "week-day-events", children: [
             visible.map((event) => {
               var _a;
               const timeLabel = formatEventTimeLabel(event);
-              return /* @__PURE__ */ (0, import_jsx_runtime10.jsxs)(
+              return /* @__PURE__ */ (0, import_jsx_runtime11.jsxs)(
                 "div",
                 {
                   "data-slot": "event",
@@ -1361,7 +1825,7 @@ function Week({
                     void handleEventClick(event);
                   },
                   children: [
-                    timeLabel ? /* @__PURE__ */ (0, import_jsx_runtime10.jsxs)("span", { "data-slot": "event-time", children: [
+                    timeLabel ? /* @__PURE__ */ (0, import_jsx_runtime11.jsxs)("span", { "data-slot": "event-time", children: [
                       timeLabel,
                       " "
                     ] }) : null,
@@ -1371,8 +1835,8 @@ function Week({
                 event.id
               );
             }),
-            overflow > 0 && /* @__PURE__ */ (0, import_jsx_runtime10.jsxs)("div", { "data-slot": "day-more-wrap", ref: showMore ? morePopoverRef : void 0, children: [
-              /* @__PURE__ */ (0, import_jsx_runtime10.jsxs)(
+            overflow > 0 && /* @__PURE__ */ (0, import_jsx_runtime11.jsxs)("div", { "data-slot": "day-more-wrap", ref: showMore ? morePopoverRef : void 0, children: [
+              /* @__PURE__ */ (0, import_jsx_runtime11.jsxs)(
                 "button",
                 {
                   type: "button",
@@ -1390,9 +1854,9 @@ function Week({
                   ]
                 }
               ),
-              showMore && /* @__PURE__ */ (0, import_jsx_runtime10.jsx)("div", { "data-slot": "day-more-popover", role: "listbox", children: dayEvents.slice(maxEventsPerDay).map((event) => {
+              showMore && /* @__PURE__ */ (0, import_jsx_runtime11.jsx)("div", { "data-slot": "day-more-popover", role: "listbox", children: dayEvents.slice(maxEventsPerDay).map((event) => {
                 const timeLabel = formatEventTimeLabel(event);
-                return /* @__PURE__ */ (0, import_jsx_runtime10.jsxs)(
+                return /* @__PURE__ */ (0, import_jsx_runtime11.jsxs)(
                   "button",
                   {
                     type: "button",
@@ -1404,7 +1868,7 @@ function Week({
                       void handleEventClick(event);
                     },
                     children: [
-                      timeLabel ? /* @__PURE__ */ (0, import_jsx_runtime10.jsxs)("span", { "data-slot": "event-time", children: [
+                      timeLabel ? /* @__PURE__ */ (0, import_jsx_runtime11.jsxs)("span", { "data-slot": "event-time", children: [
                         timeLabel,
                         " "
                       ] }) : null,
@@ -1432,19 +1896,19 @@ function Week({
     )
   );
   if (usePerDayLayout) {
-    return /* @__PURE__ */ (0, import_jsx_runtime10.jsxs)("div", { "data-slot": "week", "data-month-view": isMonthView ? "true" : void 0, children: [
-      /* @__PURE__ */ (0, import_jsx_runtime10.jsxs)(
+    return /* @__PURE__ */ (0, import_jsx_runtime11.jsxs)("div", { "data-slot": "week", "data-month-view": isMonthView ? "true" : void 0, children: [
+      /* @__PURE__ */ (0, import_jsx_runtime11.jsxs)(
         "div",
         {
           "data-slot": "week-days",
           style: { display: "grid", gridTemplateColumns: "repeat(7, 1fr)" },
           children: [
-            Array.from({ length: leadingEmpty }).map((_, index) => /* @__PURE__ */ (0, import_jsx_runtime10.jsx)("div", { "data-slot": "week-day-spacer" }, `lead-${index}`)),
+            Array.from({ length: leadingEmpty }).map((_, index) => /* @__PURE__ */ (0, import_jsx_runtime11.jsx)("div", { "data-slot": "week-day-spacer" }, `lead-${index}`)),
             days.map((day, index) => renderPerDayCell(day, index))
           ]
         }
       ),
-      selectedEvent && detailTask && (EventDetailModal ? /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(
+      selectedEvent && detailTask && (EventDetailModal ? /* @__PURE__ */ (0, import_jsx_runtime11.jsx)(
         EventDetailModal,
         {
           task: detailTask,
@@ -1452,7 +1916,7 @@ function Week({
           onClose: closeTask,
           updateTask
         }
-      ) : mapFromEvent ? /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(
+      ) : mapFromEvent ? /* @__PURE__ */ (0, import_jsx_runtime11.jsx)(
         TaskModal,
         {
           task: detailTask,
@@ -1463,19 +1927,19 @@ function Week({
       ) : null)
     ] });
   }
-  return /* @__PURE__ */ (0, import_jsx_runtime10.jsxs)("div", { "data-slot": "week", "data-month-view": isMonthView ? "true" : void 0, children: [
-    /* @__PURE__ */ (0, import_jsx_runtime10.jsxs)(
+  return /* @__PURE__ */ (0, import_jsx_runtime11.jsxs)("div", { "data-slot": "week", "data-month-view": isMonthView ? "true" : void 0, children: [
+    /* @__PURE__ */ (0, import_jsx_runtime11.jsxs)(
       "div",
       {
         "data-slot": "week-days",
         style: { display: "grid", gridTemplateColumns: "repeat(7, 1fr)" },
         children: [
-          Array.from({ length: leadingEmpty }).map((_, index) => /* @__PURE__ */ (0, import_jsx_runtime10.jsx)("div", { "data-slot": "week-day-spacer" }, `lead-${index}`)),
+          Array.from({ length: leadingEmpty }).map((_, index) => /* @__PURE__ */ (0, import_jsx_runtime11.jsx)("div", { "data-slot": "week-day-spacer" }, `lead-${index}`)),
           days.map((day, index) => renderDayHeader(day, index))
         ]
       }
     ),
-    /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(
+    /* @__PURE__ */ (0, import_jsx_runtime11.jsx)(
       "div",
       {
         "data-slot": "week-events",
@@ -1498,7 +1962,7 @@ function Week({
           );
           const endColumn = startColumn + eventSpan - 1;
           const timeLabel = formatEventTimeLabel(event);
-          return /* @__PURE__ */ (0, import_jsx_runtime10.jsxs)(
+          return /* @__PURE__ */ (0, import_jsx_runtime11.jsxs)(
             "div",
             {
               "data-slot": "event",
@@ -1512,7 +1976,7 @@ function Week({
                 void handleEventClick(event);
               },
               children: [
-                timeLabel ? /* @__PURE__ */ (0, import_jsx_runtime10.jsxs)("span", { "data-slot": "event-time", children: [
+                timeLabel ? /* @__PURE__ */ (0, import_jsx_runtime11.jsxs)("span", { "data-slot": "event-time", children: [
                   timeLabel,
                   " "
                 ] }) : null,
@@ -1524,7 +1988,7 @@ function Week({
         })
       }
     ),
-    selectedEvent && detailTask && (EventDetailModal ? /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(
+    selectedEvent && detailTask && (EventDetailModal ? /* @__PURE__ */ (0, import_jsx_runtime11.jsx)(
       EventDetailModal,
       {
         task: detailTask,
@@ -1532,7 +1996,7 @@ function Week({
         onClose: closeTask,
         updateTask
       }
-    ) : mapFromEvent ? /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(
+    ) : mapFromEvent ? /* @__PURE__ */ (0, import_jsx_runtime11.jsx)(
       TaskModal,
       {
         task: detailTask,
@@ -1545,7 +2009,7 @@ function Week({
 }
 
 // src/components/MonthView.tsx
-var import_jsx_runtime11 = require("react/jsx-runtime");
+var import_jsx_runtime12 = require("react/jsx-runtime");
 function MonthView({
   events,
   setEvents,
@@ -1569,10 +2033,10 @@ function MonthView({
   style
 }) {
   var _a;
-  const [currentMonth, setCurrentMonth] = (0, import_react7.useState)((0, import_dayjs9.default)().month());
-  const [currentYear, setCurrentYear] = (0, import_react7.useState)((0, import_dayjs9.default)().year());
-  const [selectedDate, setSelectedDate] = (0, import_react7.useState)(null);
-  const [isModalOpen, setIsModalOpen] = (0, import_react7.useState)(false);
+  const [currentMonth, setCurrentMonth] = (0, import_react8.useState)((0, import_dayjs9.default)().month());
+  const [currentYear, setCurrentYear] = (0, import_react8.useState)((0, import_dayjs9.default)().year());
+  const [selectedDate, setSelectedDate] = (0, import_react8.useState)(null);
+  const [isModalOpen, setIsModalOpen] = (0, import_react8.useState)(false);
   const openModalWithDate = (date) => {
     setSelectedDate(date);
     setIsModalOpen(true);
@@ -1587,11 +2051,11 @@ function MonthView({
     onEventCreate,
     closeModal
   );
-  const calendarData = (0, import_react7.useMemo)(
+  const calendarData = (0, import_react8.useMemo)(
     () => generateCalendarWeeks(currentYear, weekStartsOn),
     [currentYear, weekStartsOn]
   );
-  const weekdayLabels = (0, import_react7.useMemo)(
+  const weekdayLabels = (0, import_react8.useMemo)(
     () => getWeekdayLabels(weekStartsOn),
     [weekStartsOn]
   );
@@ -1617,9 +2081,9 @@ function MonthView({
   const monthTitle = (0, import_dayjs9.default)(
     `${currentYear}-${currentMonth + 1}-01`
   ).format("MMMM YYYY");
-  return /* @__PURE__ */ (0, import_jsx_runtime11.jsxs)("div", { "data-slot": "month-view", className, style, children: [
-    /* @__PURE__ */ (0, import_jsx_runtime11.jsxs)("div", { "data-slot": "month-view-nav", children: [
-      /* @__PURE__ */ (0, import_jsx_runtime11.jsx)(
+  return /* @__PURE__ */ (0, import_jsx_runtime12.jsxs)("div", { "data-slot": "month-view", className, style, children: [
+    /* @__PURE__ */ (0, import_jsx_runtime12.jsxs)("div", { "data-slot": "month-view-nav", children: [
+      /* @__PURE__ */ (0, import_jsx_runtime12.jsx)(
         Button,
         {
           type: "button",
@@ -1628,9 +2092,9 @@ function MonthView({
           children: previousMonthButtonContent
         }
       ),
-      /* @__PURE__ */ (0, import_jsx_runtime11.jsx)(Title, { level: 4, children: monthTitle }),
-      /* @__PURE__ */ (0, import_jsx_runtime11.jsx)(Button, { type: "button", onClick: handleNextMonth, "aria-label": "Next month", children: nextMonthButtonContent }),
-      !readOnly && (AddEventButton ? /* @__PURE__ */ (0, import_jsx_runtime11.jsx)(AddEventButton, { onClick: () => openModalWithDate((0, import_dayjs9.default)()) }) : /* @__PURE__ */ (0, import_jsx_runtime11.jsx)(Tooltip, { title: "Add new event", children: /* @__PURE__ */ (0, import_jsx_runtime11.jsx)(
+      /* @__PURE__ */ (0, import_jsx_runtime12.jsx)(Title, { level: 4, children: monthTitle }),
+      /* @__PURE__ */ (0, import_jsx_runtime12.jsx)(Button, { type: "button", onClick: handleNextMonth, "aria-label": "Next month", children: nextMonthButtonContent }),
+      !readOnly && (AddEventButton ? /* @__PURE__ */ (0, import_jsx_runtime12.jsx)(AddEventButton, { onClick: () => openModalWithDate((0, import_dayjs9.default)()) }) : /* @__PURE__ */ (0, import_jsx_runtime12.jsx)(Tooltip, { title: "Add new event", children: /* @__PURE__ */ (0, import_jsx_runtime12.jsx)(
         Button,
         {
           type: "button",
@@ -1640,10 +2104,10 @@ function MonthView({
         }
       ) }))
     ] }),
-    /* @__PURE__ */ (0, import_jsx_runtime11.jsxs)("div", { "data-slot": "month-view-body", children: [
-      /* @__PURE__ */ (0, import_jsx_runtime11.jsx)("div", { "data-slot": "month-view-weekdays", children: weekdayLabels.map((day) => /* @__PURE__ */ (0, import_jsx_runtime11.jsx)("div", { "data-slot": "month-weekday", children: day }, day)) }),
-      /* @__PURE__ */ (0, import_jsx_runtime11.jsx)("div", { "data-slot": "month-view-weeks", children: calendarData.filter((week) => week.some((day) => day.month() === currentMonth)).map((week, weekIndex) => /* @__PURE__ */ (0, import_jsx_runtime11.jsxs)("div", { "data-slot": "month-week", children: [
-        /* @__PURE__ */ (0, import_jsx_runtime11.jsx)(
+    /* @__PURE__ */ (0, import_jsx_runtime12.jsxs)("div", { "data-slot": "month-view-body", children: [
+      /* @__PURE__ */ (0, import_jsx_runtime12.jsx)("div", { "data-slot": "month-view-weekdays", children: weekdayLabels.map((day) => /* @__PURE__ */ (0, import_jsx_runtime12.jsx)("div", { "data-slot": "month-weekday", children: day }, day)) }),
+      /* @__PURE__ */ (0, import_jsx_runtime12.jsx)("div", { "data-slot": "month-view-weeks", children: calendarData.filter((week) => week.some((day) => day.month() === currentMonth)).map((week, weekIndex) => /* @__PURE__ */ (0, import_jsx_runtime12.jsxs)("div", { "data-slot": "month-week", children: [
+        /* @__PURE__ */ (0, import_jsx_runtime12.jsx)(
           "button",
           {
             type: "button",
@@ -1656,7 +2120,7 @@ function MonthView({
             children: "\u2192"
           }
         ),
-        /* @__PURE__ */ (0, import_jsx_runtime11.jsx)(
+        /* @__PURE__ */ (0, import_jsx_runtime12.jsx)(
           Week,
           {
             days: week,
@@ -1677,7 +2141,7 @@ function MonthView({
         )
       ] }, weekIndex)) })
     ] }),
-    CreateEventModal ? /* @__PURE__ */ (0, import_jsx_runtime11.jsx)(
+    CreateEventModal ? /* @__PURE__ */ (0, import_jsx_runtime12.jsx)(
       CreateEventModal,
       {
         isOpen: isModalOpen,
@@ -1686,7 +2150,7 @@ function MonthView({
         initialStartDate: createInitialStart,
         initialEndDate: createInitialEnd
       }
-    ) : /* @__PURE__ */ (0, import_jsx_runtime11.jsx)(
+    ) : /* @__PURE__ */ (0, import_jsx_runtime12.jsx)(
       CreateTaskModal,
       {
         isOpen: isModalOpen,
@@ -1702,12 +2166,11 @@ function MonthView({
 // src/components/WeekView.tsx
 var import_core2 = require("@dnd-kit/core");
 var import_dayjs11 = __toESM(require("dayjs"));
-var import_react9 = require("react");
+var import_react10 = require("react");
 
 // src/utils/weekViewLayout.ts
 var import_dayjs10 = __toESM(require("dayjs"));
 function getEventPlacement(event, weekStart, containerWidth, resizeOverlay) {
-  if (containerWidth <= 0) return null;
   const eventStart = (0, import_dayjs10.default)(event.start);
   const eventEnd = (0, import_dayjs10.default)(event.end);
   const weekEnd = weekStart.add(6, "days");
@@ -1721,7 +2184,7 @@ function getEventPlacement(event, weekStart, containerWidth, resizeOverlay) {
     durationDays += resizeOverlay.rightDeltaDays;
     if (durationDays <= 0) return null;
   }
-  const columnWidth = containerWidth / 7;
+  const columnWidth = containerWidth > 0 ? containerWidth / 7 : 0;
   const leftPx = startOffsetDays * columnWidth;
   const widthPx = durationDays * columnWidth;
   return {
@@ -1763,8 +2226,8 @@ function getOverlapRowAssignments(placements) {
 
 // src/components/WeekEventCard.tsx
 var import_core = require("@dnd-kit/core");
-var import_react8 = require("react");
-var import_jsx_runtime12 = require("react/jsx-runtime");
+var import_react9 = require("react");
+var import_jsx_runtime13 = require("react/jsx-runtime");
 var ROW_HEIGHT = 50;
 function WeekEventCard({
   event,
@@ -1773,7 +2236,7 @@ function WeekEventCard({
   readOnly,
   onOpen,
   dragDeltaX,
-  onResizeStart,
+  onResizePointerDown,
   EventActionButton
 }) {
   var _a;
@@ -1781,15 +2244,18 @@ function WeekEventCard({
     id: event.id,
     disabled: readOnly
   });
-  const style = (0, import_react8.useMemo)(
+  const handleWidth = weekResizeHandleWidth(placement.columnWidth);
+  const style = (0, import_react9.useMemo)(
     () => {
       var _a2;
       return {
-        position: "absolute",
-        left: placement.leftPx,
-        top: rowIndex * ROW_HEIGHT,
-        width: placement.widthPx,
+        position: "relative",
+        gridColumn: `${placement.startOffsetDays + 1} / span ${placement.durationDays}`,
+        gridRow: rowIndex + 2,
+        minWidth: 0,
+        minHeight: ROW_HEIGHT,
         height: ROW_HEIGHT,
+        overflow: "hidden",
         transform: dragDeltaX != null ? `translateX(${dragDeltaX}px)` : void 0,
         boxSizing: "border-box",
         backgroundColor: (_a2 = event.color) != null ? _a2 : "var(--event-bg, #e0e7ff)",
@@ -1798,14 +2264,17 @@ function WeekEventCard({
         display: "flex",
         alignItems: "center",
         justifyContent: "space-between",
-        padding: "0 4px",
+        padding: `0 ${handleWidth}px`,
         cursor: readOnly ? "default" : "grab",
-        zIndex: isDragging ? 1 : 0
+        zIndex: isDragging ? 2 : 0,
+        userSelect: "none"
       };
     },
     [
-      placement.leftPx,
-      placement.widthPx,
+      placement.startOffsetDays,
+      placement.durationDays,
+      placement.columnWidth,
+      handleWidth,
       rowIndex,
       dragDeltaX,
       event.color,
@@ -1814,18 +2283,22 @@ function WeekEventCard({
     ]
   );
   const timeLabel = formatEventTimeLabel(event);
-  return /* @__PURE__ */ (0, import_jsx_runtime12.jsxs)(
+  const stopDragSensors = (e) => {
+    e.stopPropagation();
+  };
+  return /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)(
     "div",
     __spreadProps(__spreadValues({
       ref: setNodeRef,
       "data-slot": "event",
       "data-event-id": event.id,
       "data-color": (_a = event.color) != null ? _a : void 0,
+      "data-dragging": isDragging ? "" : void 0,
       style
     }, readOnly ? {} : __spreadValues(__spreadValues({}, attributes), listeners)), {
       children: [
-        !readOnly && /* @__PURE__ */ (0, import_jsx_runtime12.jsxs)(import_jsx_runtime12.Fragment, { children: [
-          /* @__PURE__ */ (0, import_jsx_runtime12.jsx)(
+        !readOnly && /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)(import_jsx_runtime13.Fragment, { children: [
+          /* @__PURE__ */ (0, import_jsx_runtime13.jsx)(
             "div",
             {
               role: "button",
@@ -1833,19 +2306,21 @@ function WeekEventCard({
               "aria-label": "Resize start",
               onPointerDown: (e) => {
                 e.stopPropagation();
-                onResizeStart(event.id, "left", e.clientX);
+                onResizePointerDown(e, { eventId: event.id, handle: "left" });
               },
+              onMouseDown: stopDragSensors,
+              onTouchStart: stopDragSensors,
               style: {
                 position: "absolute",
                 left: 0,
                 top: 0,
                 bottom: 0,
-                width: 8,
+                width: handleWidth,
                 cursor: "ew-resize"
               }
             }
           ),
-          /* @__PURE__ */ (0, import_jsx_runtime12.jsx)(
+          /* @__PURE__ */ (0, import_jsx_runtime13.jsx)(
             "div",
             {
               role: "button",
@@ -1853,30 +2328,33 @@ function WeekEventCard({
               "aria-label": "Resize end",
               onPointerDown: (e) => {
                 e.stopPropagation();
-                onResizeStart(event.id, "right", e.clientX);
+                onResizePointerDown(e, { eventId: event.id, handle: "right" });
               },
+              onMouseDown: stopDragSensors,
+              onTouchStart: stopDragSensors,
               style: {
                 position: "absolute",
                 right: 0,
                 top: 0,
                 bottom: 0,
-                width: 8,
+                width: handleWidth,
                 cursor: "ew-resize"
               }
             }
           )
         ] }),
-        /* @__PURE__ */ (0, import_jsx_runtime12.jsxs)(
+        /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)(
           "span",
           {
             style: {
               overflow: "hidden",
               textOverflow: "ellipsis",
               whiteSpace: "nowrap",
-              flex: 1
+              flex: 1,
+              minWidth: 0
             },
             children: [
-              timeLabel ? /* @__PURE__ */ (0, import_jsx_runtime12.jsxs)("span", { "data-slot": "event-time", children: [
+              timeLabel ? /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)("span", { "data-slot": "event-time", children: [
                 timeLabel,
                 " "
               ] }) : null,
@@ -1884,7 +2362,7 @@ function WeekEventCard({
             ]
           }
         ),
-        /* @__PURE__ */ (0, import_jsx_runtime12.jsx)(
+        /* @__PURE__ */ (0, import_jsx_runtime13.jsx)(
           EventActionButtonSlot,
           {
             event,
@@ -1898,7 +2376,7 @@ function WeekEventCard({
 }
 
 // src/components/WeekView.tsx
-var import_jsx_runtime13 = require("react/jsx-runtime");
+var import_jsx_runtime14 = require("react/jsx-runtime");
 var ROW_HEIGHT2 = 50;
 function WeekView({
   startDate,
@@ -1929,29 +2407,30 @@ function WeekView({
   style
 }) {
   var _a, _b;
-  const [isTaskOpen, setIsTaskOpen] = (0, import_react9.useState)(false);
-  const [isCreateTaskOpen, setIsCreateTaskOpen] = (0, import_react9.useState)(false);
-  const [selectedEvent, setSelectedEvent] = (0, import_react9.useState)(
+  const [isTaskOpen, setIsTaskOpen] = (0, import_react10.useState)(false);
+  const [isCreateTaskOpen, setIsCreateTaskOpen] = (0, import_react10.useState)(false);
+  const [selectedEvent, setSelectedEvent] = (0, import_react10.useState)(
     null
   );
-  const containerRef = (0, import_react9.useRef)(null);
-  const [containerWidth, setContainerWidth] = (0, import_react9.useState)(0);
-  const [dragDelta, setDragDelta] = (0, import_react9.useState)(
+  const containerRef = (0, import_react10.useRef)(null);
+  const [containerWidth, setContainerWidth] = (0, import_react10.useState)(0);
+  const [dragDelta, setDragDelta] = (0, import_react10.useState)(
     null
   );
-  const [resizePreview, setResizePreview] = (0, import_react9.useState)(null);
-  const [resizing, setResizing] = (0, import_react9.useState)(null);
-  const resizePreviewRef = (0, import_react9.useRef)({ leftDeltaDays: 0, rightDeltaDays: 0 });
-  const lastClampedDeltaRef = (0, import_react9.useRef)(null);
-  (0, import_react9.useEffect)(() => {
+  const [resizePreview, setResizePreview] = (0, import_react10.useState)(null);
+  const resizePreviewRef = (0, import_react10.useRef)({ leftDeltaDays: 0, rightDeltaDays: 0 });
+  const lastClampedDeltaRef = (0, import_react10.useRef)(null);
+  const resizingRef = (0, import_react10.useRef)(null);
+  const [draggingUnscheduled, setDraggingUnscheduled] = (0, import_react10.useState)(null);
+  const [dragPointer, setDragPointer] = (0, import_react10.useState)(null);
+  const [dropDayIndex, setDropDayIndex] = (0, import_react10.useState)(null);
+  (0, import_react10.useEffect)(() => {
     const el = containerRef.current;
     if (!el) return;
-    const ro = new ResizeObserver((entries) => {
-      const entry = entries[0];
-      if (entry) setContainerWidth(entry.contentRect.width);
-    });
+    const update = () => setContainerWidth(el.clientWidth);
+    const ro = new ResizeObserver(update);
     ro.observe(el);
-    setContainerWidth(el.getBoundingClientRect().width);
+    update();
     return () => ro.disconnect();
   }, []);
   const openTask = () => setIsTaskOpen(true);
@@ -1974,30 +2453,38 @@ function WeekView({
     setSelectedEvent(event);
     openTask();
   };
-  const weekTitle = (0, import_react9.useMemo)(() => {
+  const weekTitle = (0, import_react10.useMemo)(() => {
     const endDate = startDate.add(6, "days");
     return `${startDate.format("MMM D")} - ${endDate.format("MMM D, YYYY")}`;
   }, [startDate]);
-  const weekDaysWithDates = (0, import_react9.useMemo)(
+  const weekDaysWithDates = (0, import_react10.useMemo)(
     () => Array.from({ length: 7 }).map((_, index) => {
       const date = startDate.clone().add(index, "days");
       return { dayIndex: index, date: date.format("YYYY-MM-DD") };
     }),
     [startDate]
   );
-  const handlePreviousWeek = (0, import_react9.useCallback)(() => {
+  const handlePreviousWeek = (0, import_react10.useCallback)(() => {
     setStartDate(startDate.subtract(1, "week"));
   }, [startDate, setStartDate]);
-  const handleNextWeek = (0, import_react9.useCallback)(() => {
+  const handleNextWeek = (0, import_react10.useCallback)(() => {
     setStartDate(startDate.add(1, "week"));
   }, [startDate, setStartDate]);
-  const handleToday = (0, import_react9.useCallback)(() => {
+  const handleToday = (0, import_react10.useCallback)(() => {
     setStartDate((0, import_dayjs11.default)());
   }, [setStartDate]);
   const sensors = (0, import_core2.useSensors)(
-    (0, import_core2.useSensor)(import_core2.PointerSensor, { activationConstraint: { distance: 5 } })
+    (0, import_core2.useSensor)(import_core2.MouseSensor, {
+      activationConstraint: { distance: POINTER_DRAG_MOUSE_DISTANCE_PX }
+    }),
+    (0, import_core2.useSensor)(import_core2.TouchSensor, {
+      activationConstraint: {
+        delay: POINTER_DRAG_DELAY_MS,
+        tolerance: POINTER_DRAG_TOLERANCE_PX
+      }
+    })
   );
-  const handleDragMove = (0, import_react9.useCallback)(
+  const handleDragMove = (0, import_react10.useCallback)(
     (event) => {
       const id = String(event.active.id);
       const ev = scheduledEvents.find((e) => e.id === id);
@@ -2020,7 +2507,7 @@ function WeekView({
     },
     [scheduledEvents, startDate, containerWidth]
   );
-  const handleDragEnd = (0, import_react9.useCallback)(
+  const handleDragEnd = (0, import_react10.useCallback)(
     (event) => {
       var _a2;
       const { active, delta } = event;
@@ -2112,40 +2599,55 @@ function WeekView({
       handleNextWeek
     ]
   );
-  const onResizeStart = (0, import_react9.useCallback)(
-    (eventId, handle, startX) => {
-      if (readOnly) return;
-      const evt = scheduledEvents.find((e) => e.id === eventId);
+  const dropDayFromPointer = (0, import_react10.useCallback)(
+    (clientX, clientY) => {
+      const calendar = containerRef.current;
+      if (!calendar) return null;
+      const rect = calendar.getBoundingClientRect();
+      if (!pointInRect(clientX, clientY, rect)) return null;
+      const columnWidth = calendar.clientWidth / 7;
+      if (columnWidth <= 0) return 0;
+      const contentLeft = rect.left + calendar.clientLeft;
+      return Math.max(
+        0,
+        Math.min(6, Math.floor((clientX - contentLeft) / columnWidth))
+      );
+    },
+    []
+  );
+  const { onPointerDown: onResizePointerDown } = useDelayedPointerDrag({
+    disabled: readOnly,
+    onDragStart: ({ eventId, handle }, e) => {
+      const evt = scheduledEvents.find((item) => item.id === eventId);
       if (!evt) return;
       const placement = getEventPlacement(evt, startDate, containerWidth);
       if (!placement) return;
-      setResizing({
+      resizingRef.current = {
         eventId,
         handle,
-        startX,
+        startX: e.clientX,
         startOffsetDays: placement.startOffsetDays,
         durationDays: placement.durationDays,
         columnWidth: placement.columnWidth
-      });
+      };
+      resizePreviewRef.current = { leftDeltaDays: 0, rightDeltaDays: 0 };
       setResizePreview({
         eventId,
         leftDeltaDays: 0,
         rightDeltaDays: 0
       });
     },
-    [readOnly, scheduledEvents, startDate, containerWidth]
-  );
-  (0, import_react9.useEffect)(() => {
-    if (!resizing) return;
-    const {
-      eventId,
-      handle,
-      startX,
-      startOffsetDays,
-      durationDays,
-      columnWidth
-    } = resizing;
-    const onMove = (e) => {
+    onDragMove: (_payload, e) => {
+      const session = resizingRef.current;
+      if (!session) return;
+      const {
+        eventId,
+        handle,
+        startX,
+        startOffsetDays,
+        durationDays,
+        columnWidth
+      } = session;
       const deltaX = e.clientX - startX;
       const dayDelta = pixelDeltaToDayDelta(deltaX, columnWidth);
       if (handle === "left") {
@@ -2171,12 +2673,15 @@ function WeekView({
           rightDeltaDays
         });
       }
-    };
-    const onUp = () => {
+    },
+    onDragEnd: () => {
+      const session = resizingRef.current;
       const current = resizePreviewRef.current;
-      setResizing(null);
       setResizePreview(null);
-      const evt = scheduledEvents.find((e) => e.id === eventId);
+      resizingRef.current = null;
+      if (!session) return;
+      const { eventId, handle, startOffsetDays, durationDays } = session;
+      const evt = scheduledEvents.find((item) => item.id === eventId);
       if (!evt) return;
       const newStartOffsetDays = startOffsetDays + current.leftDeltaDays;
       const newDurationDays = handle === "left" ? durationDays - current.leftDeltaDays : durationDays + current.rightDeltaDays;
@@ -2191,10 +2696,10 @@ function WeekView({
       });
       const prevScheduled = [...scheduledEvents];
       setScheduledEvents(
-        (prev) => prev.map((e) => e.id === eventId ? updatedEvent : e)
+        (prev) => prev.map((item) => item.id === eventId ? updatedEvent : item)
       );
       if (onEventResize) {
-        (async () => {
+        void (async () => {
           try {
             await onEventResize({
               id: eventId,
@@ -2209,15 +2714,13 @@ function WeekView({
           }
         })();
       }
-    };
-    window.addEventListener("pointermove", onMove, { capture: true });
-    window.addEventListener("pointerup", onUp, { capture: true });
-    return () => {
-      window.removeEventListener("pointermove", onMove, { capture: true });
-      window.removeEventListener("pointerup", onUp, { capture: true });
-    };
-  }, [resizing, scheduledEvents, startDate, setScheduledEvents, onEventResize]);
-  const handleUnassignedEventDrop = (0, import_react9.useCallback)(
+    },
+    onDragCancel: () => {
+      resizingRef.current = null;
+      setResizePreview(null);
+    }
+  });
+  const handleUnassignedEventDrop = (0, import_react10.useCallback)(
     (event, dayIndex) => {
       const oldStart = (0, import_dayjs11.default)(event.start);
       const oldEnd = (0, import_dayjs11.default)(event.end);
@@ -2258,6 +2761,35 @@ function WeekView({
       onEventMove
     ]
   );
+  const { onPointerDown: onUnscheduledPointerDown } = useDelayedPointerDrag({
+    disabled: readOnly,
+    onDragStart: (event, e) => {
+      setDraggingUnscheduled(event);
+      setDragPointer({ x: e.clientX, y: e.clientY });
+      setDropDayIndex(dropDayFromPointer(e.clientX, e.clientY));
+    },
+    onDragMove: (_event, e) => {
+      setDragPointer({ x: e.clientX, y: e.clientY });
+      setDropDayIndex(dropDayFromPointer(e.clientX, e.clientY));
+    },
+    onDragEnd: (event, e) => {
+      const dayIndex = dropDayFromPointer(e.clientX, e.clientY);
+      setDraggingUnscheduled(null);
+      setDragPointer(null);
+      setDropDayIndex(null);
+      if (dayIndex == null) return;
+      handleUnassignedEventDrop(event, dayIndex);
+    },
+    onDragCancel: () => {
+      setDraggingUnscheduled(null);
+      setDragPointer(null);
+      setDropDayIndex(null);
+    },
+    onPress: (event, e) => {
+      if (!isTouchLikePointer(e.pointerType)) return;
+      void handleOpenEvent(event);
+    }
+  });
   const handleCreateSubmit = useCreateEventSubmit(
     scheduledEvents,
     setScheduledEvents,
@@ -2266,15 +2798,7 @@ function WeekView({
     unscheduledEvents,
     setUnscheduledEvents
   );
-  const gridStyle = (0, import_react9.useMemo)(
-    () => ({
-      display: "grid",
-      gridTemplateColumns: "repeat(7, 1fr)",
-      width: "100%"
-    }),
-    []
-  );
-  const eventsWithPlacementAndRow = (0, import_react9.useMemo)(() => {
+  const eventsWithPlacementAndRow = (0, import_react10.useMemo)(() => {
     const withPlacement = scheduledEvents.map((event) => ({
       event,
       placement: getEventPlacement(
@@ -2297,20 +2821,19 @@ function WeekView({
     );
     return { items: withPlacement, rowIndices, numRows };
   }, [scheduledEvents, startDate, containerWidth, resizePreview]);
-  const eventsOverlayStyle = (0, import_react9.useMemo)(
+  const gridStyle = (0, import_react10.useMemo)(
     () => ({
-      position: "relative",
-      height: Math.max(
-        ROW_HEIGHT2,
-        eventsWithPlacementAndRow.numRows * ROW_HEIGHT2
-      ),
-      width: "100%"
+      display: "grid",
+      gridTemplateColumns: "repeat(7, minmax(0, 1fr))",
+      gridTemplateRows: eventsWithPlacementAndRow.numRows > 0 ? `auto repeat(${eventsWithPlacementAndRow.numRows}, ${ROW_HEIGHT2}px)` : "auto",
+      width: "100%",
+      minWidth: 0
     }),
     [eventsWithPlacementAndRow.numRows]
   );
-  return /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)("div", { "data-slot": "week-view", className, style, children: [
-    /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)("div", { "data-slot": "week-view-nav", children: [
-      /* @__PURE__ */ (0, import_jsx_runtime13.jsx)(
+  return /* @__PURE__ */ (0, import_jsx_runtime14.jsxs)("div", { "data-slot": "week-view", className, style, children: [
+    /* @__PURE__ */ (0, import_jsx_runtime14.jsxs)("div", { "data-slot": "week-view-nav", children: [
+      /* @__PURE__ */ (0, import_jsx_runtime14.jsx)(
         Button,
         {
           type: "button",
@@ -2319,8 +2842,8 @@ function WeekView({
           children: previousWeekButtonContent
         }
       ),
-      /* @__PURE__ */ (0, import_jsx_runtime13.jsx)(Title, { level: 4, children: weekTitle }),
-      /* @__PURE__ */ (0, import_jsx_runtime13.jsx)(
+      /* @__PURE__ */ (0, import_jsx_runtime14.jsx)(Title, { level: 4, children: weekTitle }),
+      /* @__PURE__ */ (0, import_jsx_runtime14.jsx)(
         Button,
         {
           type: "button",
@@ -2332,30 +2855,38 @@ function WeekView({
           children: todayButtonContent
         }
       ),
-      /* @__PURE__ */ (0, import_jsx_runtime13.jsx)(Button, { type: "button", onClick: handleNextWeek, "aria-label": "Next week", children: nextWeekButtonContent })
+      /* @__PURE__ */ (0, import_jsx_runtime14.jsx)(Button, { type: "button", onClick: handleNextWeek, "aria-label": "Next week", children: nextWeekButtonContent })
     ] }),
-    /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)("div", { "data-slot": "week-view-grid", ref: containerRef, style: gridStyle, children: [
-      weekDaysWithDates.map(({ dayIndex, date }) => /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)(
+    /* @__PURE__ */ (0, import_jsx_runtime14.jsxs)("div", { "data-slot": "week-view-grid", ref: containerRef, style: gridStyle, children: [
+      weekDaysWithDates.map(({ dayIndex, date }) => /* @__PURE__ */ (0, import_jsx_runtime14.jsxs)(
         "div",
         {
           "data-slot": "week-day-cell",
           "data-day-index": dayIndex,
           "data-date": date,
-          style: { padding: "4px", borderRight: "1px solid #e5e7eb" },
+          "data-drop-hover": dropDayIndex === dayIndex ? "" : void 0,
+          style: {
+            gridRow: 1,
+            minWidth: 0,
+            boxSizing: "border-box",
+            overflow: "hidden",
+            padding: "4px",
+            borderRight: "1px solid #e5e7eb"
+          },
           children: [
-            /* @__PURE__ */ (0, import_jsx_runtime13.jsx)("span", { children: (0, import_dayjs11.default)(date).format("ddd") }),
-            /* @__PURE__ */ (0, import_jsx_runtime13.jsx)("span", { children: (0, import_dayjs11.default)(date).format("D") })
+            /* @__PURE__ */ (0, import_jsx_runtime14.jsx)("span", { children: (0, import_dayjs11.default)(date).format("ddd") }),
+            /* @__PURE__ */ (0, import_jsx_runtime14.jsx)("span", { children: (0, import_dayjs11.default)(date).format("D") })
           ]
         },
         `day-${dayIndex}`
       )),
-      /* @__PURE__ */ (0, import_jsx_runtime13.jsx)("div", { style: __spreadValues({ gridColumn: "1 / -1" }, eventsOverlayStyle), children: /* @__PURE__ */ (0, import_jsx_runtime13.jsx)(
+      /* @__PURE__ */ (0, import_jsx_runtime14.jsx)(
         import_core2.DndContext,
         {
           sensors,
           onDragMove: handleDragMove,
           onDragEnd: handleDragEnd,
-          children: eventsWithPlacementAndRow.items.map(({ event }, i) => /* @__PURE__ */ (0, import_jsx_runtime13.jsx)(
+          children: eventsWithPlacementAndRow.items.map(({ event }, i) => /* @__PURE__ */ (0, import_jsx_runtime14.jsx)(
             WeekEventCard,
             {
               event,
@@ -2364,17 +2895,17 @@ function WeekView({
               readOnly,
               onOpen: () => handleOpenEvent(event),
               dragDeltaX: (dragDelta == null ? void 0 : dragDelta.id) === event.id ? dragDelta.x : null,
-              onResizeStart,
+              onResizePointerDown,
               EventActionButton
             },
             event.id
           ))
         }
-      ) })
+      )
     ] }),
-    /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)("div", { "data-slot": "unscheduled-list", children: [
-      /* @__PURE__ */ (0, import_jsx_runtime13.jsx)("h3", { "data-slot": "unscheduled-title", children: (_a = labels == null ? void 0 : labels.unscheduledTitle) != null ? _a : "Unscheduled events" }),
-      !readOnly && (AddEventButton ? /* @__PURE__ */ (0, import_jsx_runtime13.jsx)(AddEventButton, { onClick: openCreateTask }) : /* @__PURE__ */ (0, import_jsx_runtime13.jsx)(Tooltip, { title: "Add new event", children: /* @__PURE__ */ (0, import_jsx_runtime13.jsx)(
+    /* @__PURE__ */ (0, import_jsx_runtime14.jsxs)("div", { "data-slot": "unscheduled-list", children: [
+      /* @__PURE__ */ (0, import_jsx_runtime14.jsx)("h3", { "data-slot": "unscheduled-title", children: (_a = labels == null ? void 0 : labels.unscheduledTitle) != null ? _a : "Unscheduled events" }),
+      !readOnly && (AddEventButton ? /* @__PURE__ */ (0, import_jsx_runtime14.jsx)(AddEventButton, { onClick: openCreateTask }) : /* @__PURE__ */ (0, import_jsx_runtime14.jsx)(Tooltip, { title: "Add new event", children: /* @__PURE__ */ (0, import_jsx_runtime14.jsx)(
         Button,
         {
           type: "button",
@@ -2383,7 +2914,7 @@ function WeekView({
           children: "+"
         }
       ) })),
-      CreateEventModal ? /* @__PURE__ */ (0, import_jsx_runtime13.jsx)(
+      CreateEventModal ? /* @__PURE__ */ (0, import_jsx_runtime14.jsx)(
         CreateEventModal,
         {
           isOpen: isCreateTaskOpen,
@@ -2392,7 +2923,7 @@ function WeekView({
           initialStartDate: null,
           initialEndDate: null
         }
-      ) : /* @__PURE__ */ (0, import_jsx_runtime13.jsx)(
+      ) : /* @__PURE__ */ (0, import_jsx_runtime14.jsx)(
         CreateTaskModal,
         {
           isOpen: isCreateTaskOpen,
@@ -2402,36 +2933,34 @@ function WeekView({
           initialEndDate: null
         }
       ),
-      /* @__PURE__ */ (0, import_jsx_runtime13.jsx)("div", { "data-slot": "unscheduled-items", children: unscheduledEvents.map((event) => {
+      /* @__PURE__ */ (0, import_jsx_runtime14.jsx)("div", { "data-slot": "unscheduled-items", children: unscheduledEvents.map((event) => {
         var _a2;
-        return /* @__PURE__ */ (0, import_jsx_runtime13.jsx)(
+        return /* @__PURE__ */ (0, import_jsx_runtime14.jsx)(
           "div",
           {
             "data-slot": "unscheduled-event",
             "data-event-id": event.id,
             "data-color": (_a2 = event.color) != null ? _a2 : void 0,
+            "data-dragging": (draggingUnscheduled == null ? void 0 : draggingUnscheduled.id) === event.id ? "" : void 0,
             style: getEventChipStyle(event),
-            draggable: !readOnly,
-            onDragEnd: (e) => {
-              const calendar = containerRef.current;
-              if (calendar) {
-                const calendarRect = calendar.getBoundingClientRect();
-                const dropX = e.clientX - calendarRect.left;
-                const columnWidth = calendarRect.width / 7;
-                const columnIndex = Math.floor(dropX / columnWidth);
-                const boundedIndex = Math.max(0, Math.min(6, columnIndex));
-                handleUnassignedEventDrop(event, boundedIndex);
-              }
-            },
+            onPointerDown: (e) => onUnscheduledPointerDown(e, event),
             onDoubleClick: () => handleOpenEvent(event),
             children: event.title
           },
           event.id
         );
       }) }),
-      unscheduledEvents.length > 0 && !readOnly && /* @__PURE__ */ (0, import_jsx_runtime13.jsx)("p", { "data-slot": "unscheduled-hint", children: (_b = labels == null ? void 0 : labels.unscheduledHint) != null ? _b : "Drag an event onto a day above to schedule it, or double-click to view." })
+      unscheduledEvents.length > 0 && !readOnly && /* @__PURE__ */ (0, import_jsx_runtime14.jsx)("p", { "data-slot": "unscheduled-hint", children: (_b = labels == null ? void 0 : labels.unscheduledHint) != null ? _b : "Drag an event onto a day above to schedule it, or double-click to view." })
     ] }),
-    selectedEvent && (EventDetailModal ? /* @__PURE__ */ (0, import_jsx_runtime13.jsx)(
+    draggingUnscheduled && dragPointer && /* @__PURE__ */ (0, import_jsx_runtime14.jsx)(
+      PointerDragGhost,
+      {
+        event: draggingUnscheduled,
+        x: dragPointer.x,
+        y: dragPointer.y
+      }
+    ),
+    selectedEvent && (EventDetailModal ? /* @__PURE__ */ (0, import_jsx_runtime14.jsx)(
       EventDetailModal,
       {
         task: mapFromEvent ? mapFromEvent(selectedEvent) : {
@@ -2445,7 +2974,7 @@ function WeekView({
         onClose: closeTask,
         updateTask
       }
-    ) : mapFromEvent ? /* @__PURE__ */ (0, import_jsx_runtime13.jsx)(
+    ) : mapFromEvent ? /* @__PURE__ */ (0, import_jsx_runtime14.jsx)(
       TaskModal,
       {
         task: mapFromEvent(selectedEvent),
@@ -2459,8 +2988,8 @@ function WeekView({
 
 // src/components/YearView.tsx
 var import_dayjs12 = __toESM(require("dayjs"));
-var import_react10 = require("react");
-var import_jsx_runtime14 = require("react/jsx-runtime");
+var import_react11 = require("react");
+var import_jsx_runtime15 = require("react/jsx-runtime");
 function YearView({
   events,
   setEvents,
@@ -2484,9 +3013,9 @@ function YearView({
   style
 }) {
   var _a;
-  const [selectedDate, setSelectedDate] = (0, import_react10.useState)(null);
-  const [isModalOpen, setIsModalOpen] = (0, import_react10.useState)(false);
-  const [currentYear, setCurrentYear] = (0, import_react10.useState)((0, import_dayjs12.default)().year());
+  const [selectedDate, setSelectedDate] = (0, import_react11.useState)(null);
+  const [isModalOpen, setIsModalOpen] = (0, import_react11.useState)(false);
+  const [currentYear, setCurrentYear] = (0, import_react11.useState)((0, import_dayjs12.default)().year());
   const openModalWithDate = (date) => {
     setSelectedDate(date);
     setIsModalOpen(true);
@@ -2501,11 +3030,11 @@ function YearView({
     onEventCreate,
     closeModal
   );
-  const calendarData = (0, import_react10.useMemo)(
+  const calendarData = (0, import_react11.useMemo)(
     () => generateCalendarWeeks(currentYear, weekStartsOn),
     [currentYear, weekStartsOn]
   );
-  const weekdayLabels = (0, import_react10.useMemo)(
+  const weekdayLabels = (0, import_react11.useMemo)(
     () => getWeekdayLabels(weekStartsOn),
     [weekStartsOn]
   );
@@ -2518,9 +3047,9 @@ function YearView({
   };
   const createInitialStart = (_a = selectedDate == null ? void 0 : selectedDate.startOf("day")) != null ? _a : (0, import_dayjs12.default)().startOf("day");
   const createInitialEnd = createInitialStart.add(1, "day");
-  return /* @__PURE__ */ (0, import_jsx_runtime14.jsxs)("div", { "data-slot": "year-view", className, style, children: [
-    /* @__PURE__ */ (0, import_jsx_runtime14.jsxs)("div", { "data-slot": "year-view-nav", children: [
-      /* @__PURE__ */ (0, import_jsx_runtime14.jsx)(
+  return /* @__PURE__ */ (0, import_jsx_runtime15.jsxs)("div", { "data-slot": "year-view", className, style, children: [
+    /* @__PURE__ */ (0, import_jsx_runtime15.jsxs)("div", { "data-slot": "year-view-nav", children: [
+      /* @__PURE__ */ (0, import_jsx_runtime15.jsx)(
         Button,
         {
           type: "button",
@@ -2529,9 +3058,9 @@ function YearView({
           children: previousYearButtonContent
         }
       ),
-      /* @__PURE__ */ (0, import_jsx_runtime14.jsx)(Title, { level: 4, children: currentYear }),
-      /* @__PURE__ */ (0, import_jsx_runtime14.jsx)(Button, { type: "button", onClick: handleNextYear, "aria-label": "Next year", children: nextYearButtonContent }),
-      !readOnly && (AddEventButton ? /* @__PURE__ */ (0, import_jsx_runtime14.jsx)(AddEventButton, { onClick: () => openModalWithDate((0, import_dayjs12.default)()) }) : /* @__PURE__ */ (0, import_jsx_runtime14.jsx)(Tooltip, { title: "Add new event", children: /* @__PURE__ */ (0, import_jsx_runtime14.jsx)(
+      /* @__PURE__ */ (0, import_jsx_runtime15.jsx)(Title, { level: 4, children: currentYear }),
+      /* @__PURE__ */ (0, import_jsx_runtime15.jsx)(Button, { type: "button", onClick: handleNextYear, "aria-label": "Next year", children: nextYearButtonContent }),
+      !readOnly && (AddEventButton ? /* @__PURE__ */ (0, import_jsx_runtime15.jsx)(AddEventButton, { onClick: () => openModalWithDate((0, import_dayjs12.default)()) }) : /* @__PURE__ */ (0, import_jsx_runtime15.jsx)(Tooltip, { title: "Add new event", children: /* @__PURE__ */ (0, import_jsx_runtime15.jsx)(
         Button,
         {
           type: "button",
@@ -2541,13 +3070,13 @@ function YearView({
         }
       ) }))
     ] }),
-    /* @__PURE__ */ (0, import_jsx_runtime14.jsx)("div", { "data-slot": "year-view-months", children: [...Array(12)].map((_, monthIndex) => /* @__PURE__ */ (0, import_jsx_runtime14.jsxs)("div", { "data-slot": "year-month", children: [
-      /* @__PURE__ */ (0, import_jsx_runtime14.jsx)(Title, { level: 4, children: (0, import_dayjs12.default)(`${currentYear}-${monthIndex + 1}-01`).format("MMMM") }),
-      /* @__PURE__ */ (0, import_jsx_runtime14.jsx)("div", { "data-slot": "year-month-weekdays", children: weekdayLabels.map((day) => /* @__PURE__ */ (0, import_jsx_runtime14.jsx)("div", { "data-slot": "year-weekday", children: day }, day)) }),
-      /* @__PURE__ */ (0, import_jsx_runtime14.jsx)("div", { "data-slot": "year-month-weeks", children: calendarData.filter(
+    /* @__PURE__ */ (0, import_jsx_runtime15.jsx)("div", { "data-slot": "year-view-months", children: [...Array(12)].map((_, monthIndex) => /* @__PURE__ */ (0, import_jsx_runtime15.jsxs)("div", { "data-slot": "year-month", children: [
+      /* @__PURE__ */ (0, import_jsx_runtime15.jsx)(Title, { level: 4, children: (0, import_dayjs12.default)(`${currentYear}-${monthIndex + 1}-01`).format("MMMM") }),
+      /* @__PURE__ */ (0, import_jsx_runtime15.jsx)("div", { "data-slot": "year-month-weekdays", children: weekdayLabels.map((day) => /* @__PURE__ */ (0, import_jsx_runtime15.jsx)("div", { "data-slot": "year-weekday", children: day }, day)) }),
+      /* @__PURE__ */ (0, import_jsx_runtime15.jsx)("div", { "data-slot": "year-month-weeks", children: calendarData.filter(
         (week) => week.some((day) => day.month() === monthIndex)
-      ).map((week, weekIndex) => /* @__PURE__ */ (0, import_jsx_runtime14.jsxs)("div", { "data-slot": "year-week", children: [
-        /* @__PURE__ */ (0, import_jsx_runtime14.jsx)(
+      ).map((week, weekIndex) => /* @__PURE__ */ (0, import_jsx_runtime15.jsxs)("div", { "data-slot": "year-week", children: [
+        /* @__PURE__ */ (0, import_jsx_runtime15.jsx)(
           "button",
           {
             type: "button",
@@ -2560,7 +3089,7 @@ function YearView({
             children: "\u2192"
           }
         ),
-        /* @__PURE__ */ (0, import_jsx_runtime14.jsx)(
+        /* @__PURE__ */ (0, import_jsx_runtime15.jsx)(
           Week,
           {
             days: week,
@@ -2580,7 +3109,7 @@ function YearView({
         )
       ] }, weekIndex)) })
     ] }, monthIndex)) }),
-    CreateEventModal ? /* @__PURE__ */ (0, import_jsx_runtime14.jsx)(
+    CreateEventModal ? /* @__PURE__ */ (0, import_jsx_runtime15.jsx)(
       CreateEventModal,
       {
         isOpen: isModalOpen,
@@ -2589,7 +3118,7 @@ function YearView({
         initialStartDate: createInitialStart,
         initialEndDate: createInitialEnd
       }
-    ) : /* @__PURE__ */ (0, import_jsx_runtime14.jsx)(
+    ) : /* @__PURE__ */ (0, import_jsx_runtime15.jsx)(
       CreateTaskModal,
       {
         isOpen: isModalOpen,
@@ -2603,7 +3132,7 @@ function YearView({
 }
 
 // src/components/Calendar.tsx
-var import_jsx_runtime15 = require("react/jsx-runtime");
+var import_jsx_runtime16 = require("react/jsx-runtime");
 var VIEW_LABELS = {
   day: "Daily",
   week: "Weekly",
@@ -2663,24 +3192,24 @@ function Calendar({
     views,
     { view, defaultView, onViewChange }
   );
-  (0, import_react11.useEffect)(() => {
+  (0, import_react12.useEffect)(() => {
     applyWeekStartsOn(weekStartsOn);
   }, [weekStartsOn]);
   const isEventsControlled = events !== void 0;
-  const [internalScheduledEvents, setInternalScheduledEvents] = (0, import_react11.useState)(() => {
+  const [internalScheduledEvents, setInternalScheduledEvents] = (0, import_react12.useState)(() => {
     var _a;
     return (_a = defaultScheduledEvents != null ? defaultScheduledEvents : defaultEvents) != null ? _a : [];
   });
   const scheduledEvents = isEventsControlled ? events : internalScheduledEvents;
-  const [unscheduledEvents, setUnscheduledEvents] = (0, import_react11.useState)(
+  const [unscheduledEvents, setUnscheduledEvents] = (0, import_react12.useState)(
     () => defaultUnscheduledEvents != null ? defaultUnscheduledEvents : []
   );
   const isDateControlled = date !== void 0;
-  const [internalStartDate, setInternalStartDate] = (0, import_react11.useState)(
+  const [internalStartDate, setInternalStartDate] = (0, import_react12.useState)(
     () => defaultDate != null ? defaultDate : (0, import_dayjs13.default)()
   );
   const startDate = isDateControlled ? date : internalStartDate;
-  const setStartDate = (0, import_react11.useCallback)(
+  const setStartDate = (0, import_react12.useCallback)(
     (next) => {
       if (!isDateControlled) {
         setInternalStartDate(next);
@@ -2689,7 +3218,7 @@ function Calendar({
     },
     [isDateControlled, onDateChange]
   );
-  const handleScheduledEventsChange = (0, import_react11.useCallback)(
+  const handleScheduledEventsChange = (0, import_react12.useCallback)(
     (updater) => {
       const prev = isEventsControlled ? events : internalScheduledEvents;
       const next = typeof updater === "function" ? updater(prev) : updater;
@@ -2735,7 +3264,7 @@ function Calendar({
     effectiveZoom
   );
   const zoomLevelView = {
-    day: /* @__PURE__ */ (0, import_jsx_runtime15.jsx)(
+    day: /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(
       DayView,
       {
         startDate: startDate.startOf("day"),
@@ -2767,7 +3296,7 @@ function Calendar({
         showFullDay
       }
     ),
-    week: /* @__PURE__ */ (0, import_jsx_runtime15.jsx)(
+    week: /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(
       WeekView,
       {
         startDate: startDate.startOf("week"),
@@ -2795,7 +3324,7 @@ function Calendar({
         labels
       }
     ),
-    month: /* @__PURE__ */ (0, import_jsx_runtime15.jsx)(
+    month: /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(
       MonthView,
       {
         setStartDate,
@@ -2816,7 +3345,7 @@ function Calendar({
         maxEventsPerDay
       }
     ),
-    year: /* @__PURE__ */ (0, import_jsx_runtime15.jsx)(
+    year: /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(
       YearView,
       {
         setStartDate,
@@ -2838,8 +3367,8 @@ function Calendar({
       }
     )
   };
-  return /* @__PURE__ */ (0, import_jsx_runtime15.jsx)(import_core3.DndContext, { onDragEnd: handleDragEnd, children: /* @__PURE__ */ (0, import_jsx_runtime15.jsxs)("div", { "data-slot": "calendar-root", className, style, children: [
-    showSwitcher && orderedViews.length > 0 && /* @__PURE__ */ (0, import_jsx_runtime15.jsx)("div", { "data-slot": "calendar-view-switcher", children: /* @__PURE__ */ (0, import_jsx_runtime15.jsx)(
+  return /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(import_core3.DndContext, { onDragEnd: handleDragEnd, children: /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)("div", { "data-slot": "calendar-root", className, style, children: [
+    showSwitcher && orderedViews.length > 0 && /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("div", { "data-slot": "calendar-view-switcher", children: /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(
       SegmentedControl,
       {
         value: effectiveZoom,
@@ -2852,7 +3381,7 @@ function Calendar({
         buttonClassName: viewSwitcherButtonClassName
       }
     ) }),
-    /* @__PURE__ */ (0, import_jsx_runtime15.jsx)("div", { "data-slot": "calendar-content", "data-view": effectiveZoom, children: zoomLevelView[effectiveZoom] })
+    /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("div", { "data-slot": "calendar-content", "data-view": effectiveZoom, children: zoomLevelView[effectiveZoom] })
   ] }) });
 }
 
@@ -2913,13 +3442,13 @@ function mapEventToTask(event) {
 }
 
 // src/components/ui/Card.tsx
-var import_jsx_runtime16 = require("react/jsx-runtime");
+var import_jsx_runtime17 = require("react/jsx-runtime");
 var Card = ({ children, className }) => {
-  return /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("div", { "data-slot": "card", className, children });
+  return /* @__PURE__ */ (0, import_jsx_runtime17.jsx)("div", { "data-slot": "card", className, children });
 };
 
 // src/components/ui/Tabs.tsx
-var import_jsx_runtime17 = require("react/jsx-runtime");
+var import_jsx_runtime18 = require("react/jsx-runtime");
 var Tabs = ({
   activeKey,
   onChange,
@@ -2927,8 +3456,8 @@ var Tabs = ({
   items
 }) => {
   var _a;
-  return /* @__PURE__ */ (0, import_jsx_runtime17.jsxs)("div", { "data-slot": "tabs", className, children: [
-    /* @__PURE__ */ (0, import_jsx_runtime17.jsx)("div", { "data-slot": "tabs-list", children: items.map((item) => /* @__PURE__ */ (0, import_jsx_runtime17.jsx)(
+  return /* @__PURE__ */ (0, import_jsx_runtime18.jsxs)("div", { "data-slot": "tabs", className, children: [
+    /* @__PURE__ */ (0, import_jsx_runtime18.jsx)("div", { "data-slot": "tabs-list", children: items.map((item) => /* @__PURE__ */ (0, import_jsx_runtime18.jsx)(
       "button",
       {
         type: "button",
@@ -2941,13 +3470,13 @@ var Tabs = ({
       },
       item.key
     )) }),
-    /* @__PURE__ */ (0, import_jsx_runtime17.jsx)("div", { "data-slot": "tabs-content", children: (_a = items.find((item) => item.key === activeKey)) == null ? void 0 : _a.children })
+    /* @__PURE__ */ (0, import_jsx_runtime18.jsx)("div", { "data-slot": "tabs-content", children: (_a = items.find((item) => item.key === activeKey)) == null ? void 0 : _a.children })
   ] });
 };
 
 // src/demo/CalendarContainer.tsx
-var import_react12 = require("react");
-var import_jsx_runtime18 = require("react/jsx-runtime");
+var import_react13 = require("react");
+var import_jsx_runtime19 = require("react/jsx-runtime");
 var ALL_VIEWS2 = ["day", "week", "month", "year"];
 function CalendarContainer({
   showSwitcher,
@@ -2982,14 +3511,14 @@ function CalendarContainer({
   viewSwitcherButtonClassName
 }) {
   const effectiveAreas = areas.length > 0 ? areas : [{ id: "", name: "Calendar" }];
-  const [activeTab, setActiveTab] = (0, import_react12.useState)(
+  const [activeTab, setActiveTab] = (0, import_react13.useState)(
     () => {
       var _a, _b;
       return (_b = (_a = effectiveAreas[0]) == null ? void 0 : _a.id) != null ? _b : "";
     }
   );
   if (!showTabs || effectiveAreas.length <= 1) {
-    return /* @__PURE__ */ (0, import_jsx_runtime18.jsx)("div", { "data-slot": "calendar-container", children: /* @__PURE__ */ (0, import_jsx_runtime18.jsx)(Card, { children: /* @__PURE__ */ (0, import_jsx_runtime18.jsx)(
+    return /* @__PURE__ */ (0, import_jsx_runtime19.jsx)("div", { "data-slot": "calendar-container", children: /* @__PURE__ */ (0, import_jsx_runtime19.jsx)(Card, { children: /* @__PURE__ */ (0, import_jsx_runtime19.jsx)(
       Calendar,
       {
         showSwitcher,
@@ -3023,15 +3552,15 @@ function CalendarContainer({
       }
     ) }) });
   }
-  return /* @__PURE__ */ (0, import_jsx_runtime18.jsx)("div", { "data-slot": "calendar-container", "data-tabs": true, children: /* @__PURE__ */ (0, import_jsx_runtime18.jsx)(
+  return /* @__PURE__ */ (0, import_jsx_runtime19.jsx)("div", { "data-slot": "calendar-container", "data-tabs": true, children: /* @__PURE__ */ (0, import_jsx_runtime19.jsx)(
     Tabs,
     {
       activeKey: activeTab,
       onChange: setActiveTab,
       items: effectiveAreas.map((area) => ({
         key: area.id,
-        label: /* @__PURE__ */ (0, import_jsx_runtime18.jsx)("span", { "data-slot": "tab-label", "data-area-id": area.id, children: area.name }),
-        children: /* @__PURE__ */ (0, import_jsx_runtime18.jsx)(Card, { children: /* @__PURE__ */ (0, import_jsx_runtime18.jsx)(
+        label: /* @__PURE__ */ (0, import_jsx_runtime19.jsx)("span", { "data-slot": "tab-label", "data-area-id": area.id, children: area.name }),
+        children: /* @__PURE__ */ (0, import_jsx_runtime19.jsx)(Card, { children: /* @__PURE__ */ (0, import_jsx_runtime19.jsx)(
           Calendar,
           {
             showSwitcher,
@@ -3083,6 +3612,7 @@ function CalendarContainer({
   WeekView,
   YearView,
   applyWeekStartsOn,
+  clampStartToWindow,
   formatHourLabel,
   generateCalendarWeeks,
   getEventsForDay,
@@ -3097,6 +3627,7 @@ function CalendarContainer({
   hhmmToMinutes,
   mapEventToTask,
   mapTaskToEvent,
+  minutesFromGridPointer,
   parseHHMM,
   snapMinutes
 });

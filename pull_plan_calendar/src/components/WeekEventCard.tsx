@@ -5,7 +5,7 @@ import { useMemo } from "react";
 import type { CalendarEvent } from "../types/calendar";
 import type { WeekEventPlacement } from "../utils/weekViewLayout";
 import { formatEventTimeLabel } from "../utils/eventDisplay";
-import { RESIZE_HANDLE_WIDTH_PX } from "../utils/pointerDrag";
+import { weekResizeHandleWidth } from "../utils/pointerDrag";
 import { EventActionButtonSlot } from "./EventActionButtonSlot";
 
 const ROW_HEIGHT = 50;
@@ -42,13 +42,17 @@ export function WeekEventCard({
     disabled: readOnly,
   });
 
+  const handleWidth = weekResizeHandleWidth(placement.columnWidth);
+
   const style: React.CSSProperties = useMemo(
     () => ({
-      position: "absolute" as const,
-      left: placement.leftPx,
-      top: rowIndex * ROW_HEIGHT,
-      width: placement.widthPx,
+      position: "relative",
+      gridColumn: `${placement.startOffsetDays + 1} / span ${placement.durationDays}`,
+      gridRow: rowIndex + 2,
+      minWidth: 0,
+      minHeight: ROW_HEIGHT,
       height: ROW_HEIGHT,
+      overflow: "hidden",
       transform: dragDeltaX != null ? `translateX(${dragDeltaX}px)` : undefined,
       boxSizing: "border-box",
       backgroundColor: event.color ?? "var(--event-bg, #e0e7ff)",
@@ -57,14 +61,16 @@ export function WeekEventCard({
       display: "flex",
       alignItems: "center",
       justifyContent: "space-between",
-      padding: `0 ${RESIZE_HANDLE_WIDTH_PX}px`,
+      padding: `0 ${handleWidth}px`,
       cursor: readOnly ? "default" : "grab",
-      zIndex: isDragging ? 1 : 0,
+      zIndex: isDragging ? 2 : 0,
       userSelect: "none",
     }),
     [
-      placement.leftPx,
-      placement.widthPx,
+      placement.startOffsetDays,
+      placement.durationDays,
+      placement.columnWidth,
+      handleWidth,
       rowIndex,
       dragDeltaX,
       event.color,
@@ -106,7 +112,7 @@ export function WeekEventCard({
               left: 0,
               top: 0,
               bottom: 0,
-              width: RESIZE_HANDLE_WIDTH_PX,
+              width: handleWidth,
               cursor: "ew-resize",
             }}
           />
@@ -125,7 +131,7 @@ export function WeekEventCard({
               right: 0,
               top: 0,
               bottom: 0,
-              width: RESIZE_HANDLE_WIDTH_PX,
+              width: handleWidth,
               cursor: "ew-resize",
             }}
           />
@@ -137,6 +143,7 @@ export function WeekEventCard({
           textOverflow: "ellipsis",
           whiteSpace: "nowrap",
           flex: 1,
+          minWidth: 0,
         }}
       >
         {timeLabel ? <span data-slot="event-time">{timeLabel} </span> : null}

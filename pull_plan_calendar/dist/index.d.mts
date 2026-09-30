@@ -467,6 +467,13 @@ declare function hhmmToMinutes(value: string, fallback: number): number;
 /** Snap minutes to a grid (default 15). */
 declare function snapMinutes(minutes: number, step?: number): number;
 /**
+ * Minutes from the top of a scrollable time grid, snapped (default 15).
+ * Uses the scroll container's viewport rect + scrollTop (do not also use a tall child's rect).
+ */
+declare function minutesFromGridPointer(clientY: number, scrollEl: HTMLElement, hourRowHeight: number, step?: number): number;
+/** Keep an event start inside [windowStart, windowEnd − duration]. */
+declare function clampStartToWindow(start: Dayjs, windowStart: Dayjs, windowEnd: Dayjs, durationMinutes: number): Dayjs;
+/**
  * Visible hour range for the day grid.
  * When showFullDay is false: workdayStart−1h … workdayEnd+1h (clamped 0–24).
  * Hours are integer start hours included; endHour is exclusive for row count.
@@ -541,4 +548,4 @@ interface CalendarContainerProps {
 }
 declare function CalendarContainer({ showSwitcher, showTabs, views, areas, defaultScheduledEvents, defaultUnscheduledEvents, onEventMove, onEventResize, onEventCreate, onEventClick, onDateClick, readOnly, mapFromEvent, AddEventButton, CreateEventModal, EventActionButton, EventDetailModal, previousDayButtonContent, nextDayButtonContent, previousWeekButtonContent, nextWeekButtonContent, previousMonthButtonContent, nextMonthButtonContent, previousYearButtonContent, nextYearButtonContent, todayButtonContent, todayButtonClassName, todayButtonStyle, viewSwitcherClassName, viewSwitcherButtonClassName, }: CalendarContainerProps): react_jsx_runtime.JSX.Element;
 
-export { type Area, Calendar, CalendarContainer, type CalendarContainerProps, type CalendarEvent, type CalendarEventCreatePayload, type CalendarEventMovePayload, type CalendarEventPatch, type CalendarEventResizePayload, type CalendarLabels, type CalendarProps, type CalendarViewMode, CreateTaskModal, type CreateTaskModalProps, DEFAULT_TASK_COLOR, DayView, type DayViewProps, MonthView, type MonthViewProps, ProgressStatus, type Task, TaskModal, type TaskModalProps, UserRole, Week, type WeekDay, type WeekProps, type WeekStartsOn, WeekView, type WeekViewProps, YearView, type YearViewProps, applyWeekStartsOn, formatHourLabel, generateCalendarWeeks, getEventsForDay, getEventsForWeek, getEventsForYear, getLeadingEmptyCount, getTaskColorHex, getTasksForWeek, getTasksForYear, getVisibleHourRange, getWeekdayLabels, hhmmToMinutes, mapEventToTask, mapTaskToEvent, parseHHMM, snapMinutes };
+export { type Area, Calendar, CalendarContainer, type CalendarContainerProps, type CalendarEvent, type CalendarEventCreatePayload, type CalendarEventMovePayload, type CalendarEventPatch, type CalendarEventResizePayload, type CalendarLabels, type CalendarProps, type CalendarViewMode, CreateTaskModal, type CreateTaskModalProps, DEFAULT_TASK_COLOR, DayView, type DayViewProps, MonthView, type MonthViewProps, ProgressStatus, type Task, TaskModal, type TaskModalProps, UserRole, Week, type WeekDay, type WeekProps, type WeekStartsOn, WeekView, type WeekViewProps, YearView, type YearViewProps, applyWeekStartsOn, clampStartToWindow, formatHourLabel, generateCalendarWeeks, getEventsForDay, getEventsForWeek, getEventsForYear, getLeadingEmptyCount, getTaskColorHex, getTasksForWeek, getTasksForYear, getVisibleHourRange, getWeekdayLabels, hhmmToMinutes, mapEventToTask, mapTaskToEvent, minutesFromGridPointer, parseHHMM, snapMinutes };

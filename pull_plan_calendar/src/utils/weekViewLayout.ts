@@ -21,7 +21,7 @@ export interface WeekEventPlacement {
  *
  * @param event - Calendar event with start/end
  * @param weekStart - Start of the visible week (dayjs)
- * @param containerWidth - Measured width of the grid container
+ * @param containerWidth - Measured content width of the grid (`clientWidth`). Pixel fields are 0 until this is known; day span is still returned so bars can sit on the grid.
  * @param resizeOverlay - Optional: day deltas during resize (left: start delta, right: duration delta) for preview only
  * @returns Placement or null if event has no visible span in the week
  */
@@ -31,8 +31,6 @@ export function getEventPlacement(
   containerWidth: number,
   resizeOverlay?: { leftDeltaDays: number; rightDeltaDays: number },
 ): WeekEventPlacement | null {
-  if (containerWidth <= 0) return null;
-
   const eventStart = dayjs(event.start);
   const eventEnd = dayjs(event.end);
   const weekEnd = weekStart.add(6, "days");
@@ -50,7 +48,7 @@ export function getEventPlacement(
     if (durationDays <= 0) return null;
   }
 
-  const columnWidth = containerWidth / 7;
+  const columnWidth = containerWidth > 0 ? containerWidth / 7 : 0;
   const leftPx = startOffsetDays * columnWidth;
   const widthPx = durationDays * columnWidth;
 

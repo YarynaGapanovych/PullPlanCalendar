@@ -156,12 +156,10 @@ export default function WeekView({
   useEffect(() => {
     const el = containerRef.current;
     if (!el) return;
-    const ro = new ResizeObserver((entries) => {
-      const entry = entries[0];
-      if (entry) setContainerWidth(entry.contentRect.width);
-    });
+    const update = () => setContainerWidth(el.clientWidth);
+    const ro = new ResizeObserver(update);
     ro.observe(el);
-    setContainerWidth(el.getBoundingClientRect().width);
+    update();
     return () => ro.disconnect();
   }, []);
 
@@ -360,11 +358,12 @@ export default function WeekView({
       if (!calendar) return null;
       const rect = calendar.getBoundingClientRect();
       if (!pointInRect(clientX, clientY, rect)) return null;
-      const columnWidth = rect.width / 7;
+      const columnWidth = calendar.clientWidth / 7;
       if (columnWidth <= 0) return 0;
+      const contentLeft = rect.left + calendar.clientLeft;
       return Math.max(
         0,
-        Math.min(6, Math.floor((clientX - rect.left) / columnWidth)),
+        Math.min(6, Math.floor((clientX - contentLeft) / columnWidth)),
       );
     },
     [],
@@ -566,15 +565,6 @@ export default function WeekView({
     setUnscheduledEvents,
   );
 
-  const gridStyle: React.CSSProperties = useMemo(
-    () => ({
-      display: "grid",
-      gridTemplateColumns: "repeat(7, 1fr)",
-      width: "100%",
-    }),
-    [],
-  );
-
   const eventsWithPlacementAndRow = useMemo(() => {
     const withPlacement = scheduledEvents
       .map((event) => ({
@@ -604,14 +594,16 @@ export default function WeekView({
     return { items: withPlacement, rowIndices, numRows };
   }, [scheduledEvents, startDate, containerWidth, resizePreview]);
 
-  const eventsOverlayStyle: React.CSSProperties = useMemo(
+  const gridStyle: React.CSSProperties = useMemo(
     () => ({
-      position: "relative" as const,
-      height: Math.max(
-        ROW_HEIGHT,
-        eventsWithPlacementAndRow.numRows * ROW_HEIGHT,
-      ),
+      display: "grid",
+      gridTemplateColumns: "repeat(7, minmax(0, 1fr))",
+      gridTemplateRows:
+        eventsWithPlacementAndRow.numRows > 0
+          ? `auto repeat(${eventsWithPlacementAndRow.numRows}, ${ROW_HEIGHT}px)`
+          : "auto",
       width: "100%",
+      minWidth: 0,
     }),
     [eventsWithPlacementAndRow.numRows],
   );
@@ -654,33 +646,38 @@ export default function WeekView({
             data-day-index={dayIndex}
             data-date={date}
             data-drop-hover={dropDayIndex === dayIndex ? "" : undefined}
-            style={{ padding: "4px", borderRight: "1px solid #e5e7eb" }}
+            style={{
+              gridRow: 1,
+              minWidth: 0,
+              boxSizing: "border-box",
+              overflow: "hidden",
+              padding: "4px",
+              borderRight: "1px solid #e5e7eb",
+            }}
           >
             <span>{dayjs(date).format("ddd")}</span>
             <span>{dayjs(date).format("D")}</span>
           </div>
         ))}
-        <div style={{ gridColumn: "1 / -1", ...eventsOverlayStyle }}>
-          <DndContext
-            sensors={sensors}
-            onDragMove={handleDragMove}
-            onDragEnd={handleDragEnd}
-          >
-            {eventsWithPlacementAndRow.items.map(({ event }, i) => (
-              <WeekEventCard
-                key={event.id}
-                event={event}
-                placement={eventsWithPlacementAndRow.items[i].placement}
-                rowIndex={eventsWithPlacementAndRow.rowIndices[i]}
-                readOnly={readOnly}
-                onOpen={() => handleOpenEvent(event)}
-                dragDeltaX={dragDelta?.id === event.id ? dragDelta.x : null}
-                onResizePointerDown={onResizePointerDown}
-                EventActionButton={EventActionButton}
-              />
-            ))}
-          </DndContext>
-        </div>
+        <DndContext
+          sensors={sensors}
+          onDragMove={handleDragMove}
+          onDragEnd={handleDragEnd}
+        >
+          {eventsWithPlacementAndRow.items.map(({ event }, i) => (
+            <WeekEventCard
+              key={event.id}
+              event={event}
+              placement={eventsWithPlacementAndRow.items[i].placement}
+              rowIndex={eventsWithPlacementAndRow.rowIndices[i]}
+              readOnly={readOnly}
+              onOpen={() => handleOpenEvent(event)}
+              dragDeltaX={dragDelta?.id === event.id ? dragDelta.x : null}
+              onResizePointerDown={onResizePointerDown}
+              EventActionButton={EventActionButton}
+            />
+          ))}
+        </DndContext>
       </div>
 
       <div data-slot="unscheduled-list">
